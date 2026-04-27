@@ -5,7 +5,7 @@ This repository contains the code for the paper:
 **"FIRE: Frobenius-Isometry Reinitialization for Balancing the Stability-Plasticity Tradeoff"**  
 Authors: 
 [Isaac Han](https://isaac7778.github.io/), 
-Sangyeon Park, 
+[Sangyeon Park](https://sangyeon-park.github.io/), 
 Seungwon Oh, 
 [Donghu Kim](https://i-am-proto.github.io/),
 [Hojoon Lee*](https://joonleesky.github.io/), 
