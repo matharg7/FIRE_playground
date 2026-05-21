@@ -1,0 +1,201 @@
+import gc
+import copy
+import torch
+import wandb
+from tqdm import tqdm
+import numpy as np
+from copy import deepcopy
+
+from models import get_resnet18_CIFAR10, get_TinyViT_CIFAR100, get_VGG16_TinyImageNet
+from task import TASKS
+
+def get_optimizer(model, cfg):
+    OPTIMIZERS = {
+        'adam': torch.optim.Adam,
+    }
+
+    if cfg.optimizer in OPTIMIZERS:
+        optimizer = OPTIMIZERS[cfg.optimizer](model.parameters(), lr=cfg.lr)
+    else:
+        print(f"Optimizer {cfg.optimizer} not supported or removed (e.g. muon). Falling back to adam.")
+        optimizer = OPTIMIZERS['adam'](model.parameters(), lr=cfg.lr)
+        
+    return optimizer
+
+def build_model(cfg):
+    if cfg.model == 'RESNET18':
+        assert cfg.task == 'CIFAR10'
+        model = get_resnet18_CIFAR10()
+
+    elif cfg.model == 'TinyViT':
+        assert cfg.task == 'CIFAR100'
+        model = get_TinyViT_CIFAR100()
+
+    elif cfg.model == 'VGG16':
+        assert cfg.task == 'TinyImageNet'
+        model = get_VGG16_TinyImageNet()
+    else:
+        raise ValueError(f"Invalid model_name: {cfg.model}")
+
+    return model
+
+def get_task(cfg):
+    if cfg.benchmark=='class_incremental':
+        assert cfg.model == 'TinyViT' or cfg.model == 'VGG16'
+    benchmark_settings = {
+        'warm_start': {'n_epochs': 100, 'n_chunks': 2, 'mode': 'sample'},
+        'continual': {'n_epochs': 100, 'n_chunks': 10, 'mode': 'sample'},
+        'class_incremental': {'n_epochs': 100, 'n_chunks': 20, 'mode': 'class'},
+    }
+    task_setting = benchmark_settings[cfg.benchmark]
+
+    task = TASKS[cfg.task](
+        mode=task_setting['mode'],
+        n_chunks=task_setting['n_chunks'],
+        make_test_loader=True,
+        access='full',
+        test_access='same',
+        seed=cfg.seed,
+        warm_start_subset_ratio=cfg.warm_start_subset_ratio,
+    )
+    cfg.n_epochs = task_setting['n_epochs']
+    return task
+
+def main(cfg):
+
+    cfg.print()
+
+    np.random.seed(cfg.seed)
+    torch.manual_seed(cfg.seed)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f'Using device: {device}')
+
+    # Initialize task
+    task = get_task(cfg)
+
+    # Initialize model
+    model = build_model(cfg).to(device)
+
+    # Initialize optimizer
+    optimizer = get_optimizer(model, cfg)
+    initial_lr = 0.0
+    target_lr = [param_group['lr'] for param_group in optimizer.param_groups]
+    warmup_rate = 0.1
+
+    # Initialize loss function
+    criterion = torch.nn.CrossEntropyLoss()
+    
+    wandb.init(
+        project=f"{cfg.benchmark}_{cfg.task}_{cfg.model}",
+        name="run1",
+        config=cfg,
+        mode="disabled" if cfg.disable_wandb else "online",
+    )
+
+    global_epoch = 0
+    global_step = 0
+
+    # main loop
+    for i_iter in range(task.n_chunks):
+        # loggings and steps
+        if cfg.benchmark=='warm_start' and i_iter==0:
+            log_every = 100 // cfg.warm_start_subset_ratio
+        else:
+            log_every = cfg.log_every
+
+        # Set level
+        trainloader = task.set_level(i_iter, batch_size=cfg.batch_size)
+        real_epochs = cfg.n_epochs * log_every
+        pbar = tqdm(range(real_epochs), leave=True)
+
+        optimizer = get_optimizer(model, cfg) # reset optimizer at every iteration
+        target_lr = [param_group['lr'] for param_group in optimizer.param_groups]
+
+        # Train model
+        for epoch in pbar:
+            pbar.set_description(f'Iter - {i_iter}, Epoch - {epoch}')
+
+            do_logging = global_epoch % log_every == 0
+            
+            # warmup learning rate scheduling: from https://arxiv.org/abs/2406.02596
+            ls = global_step % cfg.n_epochs
+            we = cfg.n_epochs * warmup_rate
+            remain = (epoch+1) / cfg.n_epochs - int((epoch+1) / cfg.n_epochs)
+            for i, param_group in enumerate(optimizer.param_groups):
+                if ls < we:
+                    current_lr = initial_lr + (target_lr[i] - initial_lr) * remain * (10 // log_every)
+                else:
+                    # 10 에포크 이후에는 target_lr 유지
+                    current_lr = target_lr[i]
+                param_group['lr'] = current_lr
+
+            # epoch loop
+            current_lr = cfg.lr
+            total = 0
+            correct = 0
+            for i_step, (inputs, labels, original_indices, chunk_indices) in enumerate(trainloader, 0):
+                model.train()
+
+                inputs, labels = inputs.to(device), labels.to(device)
+
+                # forward
+                outputs = model(inputs)
+
+                # calculate accuracy
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+                ce_loss = criterion(outputs, labels)#=========================CE loss
+
+                # compute loss
+                loss = ce_loss
+
+                # backward
+                optimizer.zero_grad()
+                loss.backward()
+
+                if cfg.clip_grad_norm > 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.clip_grad_norm)
+
+                optimizer.step()
+
+            train_acc = correct / total
+
+            if do_logging:
+                global_step += 1
+
+                log_dict = {
+                    'train/acc': train_acc,
+                    'train/lr': current_lr,
+                    'level': i_iter,
+                    'global_step': global_step, 'global_epoch': global_epoch, 'iter': i_iter,
+                }
+                p_fix_dict = {
+                    "acc": train_acc,
+                    "lr": current_lr,
+                }
+
+                test_acc, test_info = task.test(model, device)
+                log_dict['test/acc'] = test_acc
+                p_fix_dict["test_acc"] = test_acc
+                if cfg.benchmark=='class_incremental':
+                    acc_full, _ = task.test(model, device, full=True)
+                    log_dict['test/acc_full'] = acc_full
+                    p_fix_dict['test_acc_full'] = acc_full
+
+                wandb.log(log_dict, step=global_step)                    
+                pbar.set_postfix(**p_fix_dict)
+
+            global_epoch += 1
+
+        del trainloader
+        torch.cuda.empty_cache()  # Free GPU memory
+        gc.collect()  # Force garbage collection
+
+    wandb.finish()
+
+if __name__ == "__main__":
+    from config_st import get_config
+    cfg = get_config()
+    main(cfg)
