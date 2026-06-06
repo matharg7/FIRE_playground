@@ -65,7 +65,7 @@ def get_task(cfg):
 
 
 # ---------------------------------------------------------------------------
-# Gradient-step counter
+# Gradient-step counter 
 # ---------------------------------------------------------------------------
 
 def compute_total_gradient_steps(cfg, task):
