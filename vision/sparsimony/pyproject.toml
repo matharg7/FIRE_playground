@@ -1,0 +1,70 @@
+[project]
+name = "sparsimony"
+version = "0.2.0"
+description = ""
+authors = [
+    {name = "Mike Lasby"}
+]
+readme = "README.md"
+license = {text = "MIT"}
+keywords = []
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.9,<3.13"
+dependencies = [
+    "torch>=2.0",
+    "numpy>=1.0",
+    "deepspeed",
+    "transformers>=4.0.0,<5.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "flake8>=7.0.0,<8.0.0",
+    "black>=25.0.0,<26.0.0",
+    "pre-commit>=4.0.0,<5.0.0",
+    "pytest>=8.3.5,<9.0.0",
+    "pytest-cov>=6.0.0,<7.0.0",
+]
+
+
+[project.urls]
+Homepage = "https://github.com/mklasby/sparsimony"
+Issues = "https://github.com/mklasby/sparsimony/issues"
+Repo = "https://github.com/mklasby/sparsimony"
+
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+
+[tool.black]
+line-length = 80
+exclude ='''
+/(
+    artifacts/*
+    | .venv/*
+)
+'''
+
+[tool.pytest.ini_options]
+pythonpath = [
+    ".", "./sparsimony", "./tests"
+]
+addopts = "--cov ./sparsimony --cov-report html --cov-branch --import-mode importlib"
+# addopts = "--import-mode importlib"
+markers = [
+    "integration",
+    "slow",
+    "dist",
+]
+norecursedirs = "tests/utils"
+testpaths = "tests"
