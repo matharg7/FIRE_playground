@@ -44,7 +44,7 @@ def build_model(cfg):
 
 def get_task(cfg):
     if cfg.benchmark == 'class_incremental':
-        assert cfg.model in ('TinyViT', 'VGG16')
+        assert cfg.model in ('TinyViT', 'VGG16') # check if 'TinyViT' or 'VGG16' is the model used
     benchmark_settings = {
         'warm_start':        {'n_epochs': 100, 'n_chunks': 2,  'mode': 'sample'},
         'continual':         {'n_epochs': 100, 'n_chunks': 10, 'mode': 'sample'},
@@ -55,7 +55,7 @@ def get_task(cfg):
         mode=s['mode'],
         n_chunks=s['n_chunks'],
         make_test_loader=True,
-        access='full',
+        access='full', # include data from all previous tasks, cumulative learning
         test_access='same',
         seed=cfg.seed,
         warm_start_subset_ratio=cfg.warm_start_subset_ratio,
@@ -181,29 +181,29 @@ def build_sparsifier(cfg, model, optimizer, total_steps):
 # ---------------------------------------------------------------------------
 
 def main(cfg):
-    cfg.print()
+    cfg.print() # Print model configuration
 
-    np.random.seed(cfg.seed)
-    torch.manual_seed(cfg.seed)
+    np.random.seed(cfg.seed) # Set seed for reproducibility
+    torch.manual_seed(cfg.seed) # Set seed for reproducibility
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+    print(f"Using device: {device}") # Print device
 
     # Build task first so cfg.n_epochs is populated before step counting
     task = get_task(cfg)
     model = build_model(cfg).to(device)
     optimizer = get_optimizer(model, cfg)
 
-    total_steps = compute_total_gradient_steps(cfg, task)
+    total_steps = compute_total_gradient_steps(cfg, task) # total number of gradient steps for sparsifier
     # init DDP AFTER reparametrization if using distributed training
-    sparsifier = build_sparsifier(cfg, model, optimizer, total_steps)
+    sparsifier = build_sparsifier(cfg, model, optimizer, total_steps) # TODO: UNDERSTAND SPARSIFIER
 
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss() # use cross entropy loss
     initial_lr = 0.0
     warmup_rate = 0.1
 
     wandb_project = cfg.wandb_project or f"{cfg.benchmark}_{cfg.task}_{cfg.model}"
-    wandb.init(
+    wandb.init(  # initialize weights and biases
         project=wandb_project,
         name=f"{cfg.sparsifier}_s{cfg.sparsity}",
         config=cfg.__dict__,
@@ -211,20 +211,35 @@ def main(cfg):
     )
 
     global_epoch = 0
-    global_step = 0
+    global_step = 0 # total number of evaluations 
 
-    for i_iter in range(task.n_chunks):
+# main training loop
+
+# for i_iter in --> number of chunks set by config
+#     first iteration is the warm_start, log every 100
+#     other iterations log every config.log_every
+
+#     for epoch in range --> number of epochs set by config
+#         for batch in trainloader --> number of batches set by config
+#             forward pass
+#             compute loss
+#             backward pass
+#             update weights
+#     wandb.log
+#     evaluate
+
+    for i_iter in range(task.n_chunks): # iterate for number of chunks
         if cfg.benchmark == 'warm_start' and i_iter == 0:
             log_every = 100 // cfg.warm_start_subset_ratio
         else:
             log_every = cfg.log_every
 
-        trainloader = task.set_level(i_iter, batch_size=cfg.batch_size)
-        real_epochs = cfg.n_epochs * log_every
-        pbar = tqdm(range(real_epochs), leave=True)
+        trainloader = task.set_level(i_iter, batch_size=cfg.batch_size) # active training dataset is loaded for current level (i_iter)
+        real_epochs = cfg.n_epochs * log_every # actual number of epochs to train on this chunk
+        pbar = tqdm(range(real_epochs), leave=True) # create progress bar 
 
         # Reset optimizer at every iteration; hand the new instance to sparsifier
-        optimizer = get_optimizer(model, cfg)
+        optimizer = get_optimizer(model, cfg) # reset optimizer --> discard previous lr and 
         target_lr = [pg['lr'] for pg in optimizer.param_groups]
 
         if sparsifier is not None:
@@ -237,42 +252,42 @@ def main(cfg):
             do_logging = global_epoch % log_every == 0
 
             # Warmup LR scheduling (from https://arxiv.org/abs/2406.02596)
-            ls = global_step % cfg.n_epochs
-            we = cfg.n_epochs * warmup_rate
-            remain = (epoch + 1) / cfg.n_epochs - int((epoch + 1) / cfg.n_epochs)
+            ls = global_step % cfg.n_epochs # ls represents which evaluation checkpoint we're at --> should range from 0 to real_epochs -1       
+            we = cfg.n_epochs * warmup_rate # which percentage of epochs get the warmup learning rate
+            remain = (epoch + 1) / cfg.n_epochs - int((epoch + 1) / cfg.n_epochs) # which epoch are we on in the current chunk
             for i, pg in enumerate(optimizer.param_groups):
-                if ls < we:
+                if ls < we: # within warmup period (0 to we) --> increment learning rate
                     pg['lr'] = initial_lr + (target_lr[i] - initial_lr) * remain * (10 // log_every)
-                else:
+                else: # after warmup period --> set to target learning rate
                     pg['lr'] = target_lr[i]
 
             total = correct = 0
-            current_lr = cfg.lr
-            for inputs, labels, _orig_idx, _chunk_idx in trainloader:
-                model.train()
+            current_lr = cfg.lr# --> what is this
+            for inputs, labels, _orig_idx, _chunk_idx in trainloader: # iterate through each batch in the current chunk?
+                model.train() # put model in training mode
                 inputs, labels = inputs.to(device), labels.to(device)
 
-                outputs = model(inputs)
-                _, predicted = torch.max(outputs.data, 1)
-                total   += labels.size(0)
-                correct += (predicted == labels).sum().item()
+                outputs = model(inputs) # forward pass
+                _, predicted = torch.max(outputs.data, 1) # get predicted class from outputs
+                total   += labels.size(0) # accumulate total number of samples
+                correct += (predicted == labels).sum().item() # accumulate number of correctly predicted samples
 
-                loss = criterion(outputs, labels)
-                optimizer.zero_grad()
-                loss.backward()
+                loss = criterion(outputs, labels) # compute loss
+                optimizer.zero_grad() # zero out gradients
+                loss.backward() # backward pass
 
                 if cfg.clip_grad_norm > 0:
-                    nn.utils.clip_grad_norm_(model.parameters(), cfg.clip_grad_norm)
+                    nn.utils.clip_grad_norm_(model.parameters(), cfg.clip_grad_norm) # clip gradients to prevent explosion
 
                 optimizer.step()
                 if sparsifier is not None:
                     sparsifier.step()
 
-            train_acc = correct / total
+            train_acc = correct / total # calculate accuracy on the training data for the current chunk
 
             if do_logging:
                 global_step += 1
-                log_dict = {
+                log_dict = { # initialize current logging metrics and values 
                     'train/acc': train_acc,
                     'train/lr': current_lr,
                     'level': i_iter,
@@ -282,20 +297,20 @@ def main(cfg):
                 }
                 p_fix = {'acc': train_acc, 'lr': current_lr}
 
-                test_acc, _ = task.test(model, device)
-                log_dict['test/acc'] = test_acc
-                p_fix['test_acc'] = test_acc
+                test_acc, _ = task.test(model, device) # calculate test accuracy on the current test dataset
+                log_dict['test/acc'] = test_acc # add test accuracy to log dictionary
+                p_fix['test_acc'] = test_acc # add test accuracy to progress bar postfix
 
-                if cfg.benchmark == 'class_incremental':
-                    acc_full, _ = task.test(model, device, full=True)
-                    log_dict['test/acc_full'] = acc_full
-                    p_fix['test_acc_full'] = acc_full
+                if cfg.benchmark == 'class_incremental': # if the benchmark is class incremental
+                    acc_full, _ = task.test(model, device, full=True) # calculate test accuracy on all classes
+                    log_dict['test/acc_full'] = acc_full # add test accuracy to log dictionary
+                    p_fix['test_acc_full'] = acc_full # add test accuracy to progress bar postfix
 
-                wandb.log(log_dict, step=global_step)
-                pbar.set_postfix(**p_fix)
+                wandb.log(log_dict, step=global_step) # log the metrics on wandb
+                pbar.set_postfix(**p_fix) # update progress bar postfix
 
-            global_epoch += 1
-
+            global_epoch += 1 # update global epoch
+# delete data loader / iterator, clear cuda cache, and collect garbage
         del trainloader
         torch.cuda.empty_cache()
         gc.collect()
