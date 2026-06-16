@@ -113,14 +113,13 @@ def build_sparsifier(cfg, model, optimizer, total_steps):
     if cfg.sparsifier == 'dense':
         return None
 
-    # Derived schedule params
-    t_end   = int(cfg.t_end_ratio * total_steps)
-    delta_t = max(1, total_steps // cfg.num_mask_updates)
-
     from sparsimony import rigl, gmp, static
     from sparsimony import set as sp_set  # avoid shadowing Python's built-in
 
+    t_end = int(cfg.t_end_ratio * total_steps)
+
     if cfg.sparsifier == 'rigl':
+        delta_t = max(1, t_end // cfg.num_mask_updates)
         sparsifier = rigl(
             optimizer,
             sparsity=cfg.sparsity,
@@ -130,6 +129,7 @@ def build_sparsifier(cfg, model, optimizer, total_steps):
         )
 
     elif cfg.sparsifier == 'set':
+        delta_t = max(1, t_end // cfg.num_mask_updates)
         sparsifier = sp_set(
             optimizer,
             sparsity=cfg.sparsity,
@@ -140,6 +140,7 @@ def build_sparsifier(cfg, model, optimizer, total_steps):
 
     elif cfg.sparsifier == 'gmp':
         t_accel = int(cfg.t_accel_ratio * total_steps)
+        delta_t = max(1, (t_end - t_accel) // cfg.num_mask_updates)
         sparsifier = gmp(
             optimizer,
             t_accel=t_accel,
