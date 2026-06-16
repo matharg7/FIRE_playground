@@ -10,6 +10,7 @@ import numpy as np
 
 from models import get_resnet18_CIFAR10, get_TinyViT_CIFAR100, get_VGG16_TinyImageNet
 from task import TASKS
+from dst_log_utils import ITOPTracker, get_sparsity_stats, get_current_pruning_ratio
 
 # Add the bundled sparsimony repo to sys.path once at import time.
 _sparsimony_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sparsimony')
@@ -178,6 +179,35 @@ def build_sparsifier(cfg, model, optimizer, total_steps):
 
 
 # ---------------------------------------------------------------------------
+# W&B run-name builder
+# ---------------------------------------------------------------------------
+
+def build_run_name(cfg, sparsifier) -> str:
+    base = f"{cfg.model}_{cfg.task}"
+    if cfg.sparsifier == 'dense':
+        return f"{base}_dense"
+    # delta_t is stored on the scheduler for all non-static methods
+    dt = getattr(getattr(sparsifier, 'scheduler', None), 'delta_t', None)
+    if cfg.sparsifier in ('rigl', 'set'):
+        return (
+            f"{base}_dst"
+            f"_sparsity_{cfg.sparsity}"
+            f"_pruning_ratio_{cfg.pruning_ratio}"
+            f"_delta_t_{dt}"
+        )
+    if cfg.sparsifier == 'gmp':
+        return (
+            f"{base}_gmp"
+            f"_accel_sparsity_{cfg.initial_sparsity}"
+            f"_final_sparsity_{cfg.sparsity}"
+            f"_delta_t_{dt}"
+        )
+    if cfg.sparsifier == 'static':
+        return f"{base}_static_sparsity_{cfg.sparsity}"
+    return f"{base}_{cfg.sparsifier}"
+
+
+# ---------------------------------------------------------------------------
 # Main training loop
 # ---------------------------------------------------------------------------
 
@@ -203,16 +233,18 @@ def main(cfg):
 
     total_steps = compute_total_gradient_steps(cfg, task) # total number of gradient steps for sparsifier
     # init DDP AFTER reparametrization if using distributed training
-    sparsifier = build_sparsifier(cfg, model, optimizer, total_steps) # TODO: UNDERSTAND SPARSIFIER
+    sparsifier = build_sparsifier(cfg, model, optimizer, total_steps)
+    itop_tracker = ITOPTracker(sparsifier) if sparsifier is not None else None
 
     criterion = nn.CrossEntropyLoss() # use cross entropy loss
     initial_lr = 0.0
     warmup_rate = 0.1
 
     wandb_project = cfg.wandb_project or f"{cfg.benchmark}_{cfg.task}_{cfg.model}"
-    wandb.init(  # initialize weights and biases
+    wandb.init(
+        entity="ucalgary",
         project=wandb_project,
-        name=f"{cfg.sparsifier}_s{cfg.sparsity}",
+        name=build_run_name(cfg, sparsifier),
         config=cfg.__dict__,
         mode="disabled" if cfg.disable_wandb else "online",
     )
@@ -263,15 +295,15 @@ def main(cfg):
             we = cfg.n_epochs * warmup_rate # which percentage of epochs get the warmup learning rate
             remain = (epoch + 1) / cfg.n_epochs - int((epoch + 1) / cfg.n_epochs) # which epoch are we on in the current chunk
             for i, pg in enumerate(optimizer.param_groups):
-                if ls < we: # within warmup period (0 to we) --> increment learning rate
-                    pg['lr'] = initial_lr + (target_lr[i] - initial_lr) * remain * (10 // log_every)
-                else: # after warmup period --> set to target learning rate
-                    pg['lr'] = target_lr[i]
+                if ls < we:
+                    current_lr = initial_lr + (target_lr[i] - initial_lr) * remain * (10 // log_every)
+                else:
+                    current_lr = target_lr[i]
+                pg['lr'] = current_lr
 
             total = correct = 0
-            current_lr = cfg.lr# --> what is this
-            for inputs, labels, _orig_idx, _chunk_idx in trainloader: # iterate through each batch in the current chunk?
-                model.train() # put model in training mode
+            for inputs, labels, _orig_idx, _chunk_idx in trainloader:
+                model.train()
                 inputs, labels = inputs.to(device), labels.to(device)
 
                 outputs = model(inputs) # forward pass
@@ -288,7 +320,8 @@ def main(cfg):
 
                 optimizer.step()
                 if sparsifier is not None:
-                    sparsifier.step()
+                    if sparsifier.step():
+                        itop_tracker.update()
 
             train_acc = correct / total # calculate accuracy on the training data for the current chunk
 
@@ -313,8 +346,19 @@ def main(cfg):
                     log_dict['test/acc_full'] = acc_full # add test accuracy to log dictionary
                     p_fix['test_acc_full'] = acc_full # add test accuracy to progress bar postfix
 
-                wandb.log(log_dict, step=global_step) # log the metrics on wandb
-                pbar.set_postfix(**p_fix) # update progress bar postfix
+                if sparsifier is not None:
+                    sparsity_stats = get_sparsity_stats(model)
+                    log_dict['dst/mask_sparsity']  = sparsity_stats['mask_sparsity']
+                    log_dict['dst/weight_sparsity'] = sparsity_stats['weight_sparsity']
+                    log_dict['dst/itop_rate']       = itop_tracker.compute()
+                    pruning_ratio = get_current_pruning_ratio(sparsifier)
+                    if pruning_ratio is not None:
+                        log_dict['dst/pruning_ratio'] = pruning_ratio
+
+                wandb.log(log_dict, step=global_step)
+                pbar.set_postfix(**p_fix)
+
+            global_epoch += 1
 
             global_epoch += 1 # update global epoch
 # delete data loader / iterator, clear cuda cache, and collect garbage
