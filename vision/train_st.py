@@ -186,7 +186,12 @@ def main(cfg):
     np.random.seed(cfg.seed)
     torch.manual_seed(cfg.seed)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(
+    "cuda" if torch.cuda.is_available()
+    else "mps" if torch.backends.mps.is_available()
+    else "cpu"
+)
     print(f"Using device: {device}")
 
     # Build task first so cfg.n_epochs is populated before step counting
