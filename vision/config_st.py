@@ -35,8 +35,8 @@ CONFIG = {
     # ---- Misc ----
     'log_every': 1,
     'seed': 0,
-    'batch_size': 256, 
-    'disable_wandb': False,  # True | False
+    'batch_size': 256,
+    'disable_wandb': False,
     'wandb_project': '',          # override wandb project name (empty = auto)
 
     # ---- Sparsifier ----

@@ -4,3 +4,5 @@ torchvision
 wandb
 tqdm
 einops
+deepspeed
+transformers>=4.0.0,<5.0.0
