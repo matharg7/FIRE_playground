@@ -242,7 +242,7 @@ def main(cfg):
 
     wandb_project = cfg.wandb_project or f"{cfg.benchmark}_{cfg.task}_{cfg.model}"
     wandb.init(
-        entity="ucalgary",
+        # entity="fredella-pang-university-of-calgary-in-alberta", #ucalgary"
         project=wandb_project,
         name=build_run_name(cfg, sparsifier),
         config=cfg.__dict__,
