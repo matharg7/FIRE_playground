@@ -3,6 +3,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../.env/bin/activate"
+# if [ -f "$SCRIPT_DIR/../.env/bin/activate" ]; then
+#     source "$SCRIPT_DIR/../.env/bin/activate"
+# fi
 cd "$SCRIPT_DIR/../vision"
 
 GPU=${1:-0}
