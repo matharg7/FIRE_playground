@@ -1,0 +1,4 @@
+wandb: Starting wandb agent 🕵️
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from WANDB_API_KEY.
+2026-06-21 00:45:29,186 - wandb.wandb_agent - INFO - Running runs: []
+slurmstepd: error: *** JOB 16468273 ON g32 CANCELLED AT 2026-06-21T20:45:29 DUE TO TIME LIMIT ***

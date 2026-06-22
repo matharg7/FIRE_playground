@@ -1,0 +1,4 @@
+==> Loading modules (StdEnv/2023 python/3.11.5 scipy-stack/2026a arrow/24.0.0 cuda/13.2)
+==> Activating venv: /scratch/freddyp/fire-env
+[INFO] Starting sweep agent for ID: fredella-pang-university-of-calgary-in-alberta/DST Continual Learning/7yfjydkv
+[INFO] Array task ID: 32

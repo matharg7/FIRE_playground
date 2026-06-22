@@ -1,0 +1,35 @@
+program: ../bash_scripts/run_vision_st.sh
+project: DST Continual Learning
+name: DST CIFAR10-RESNET18 Continual Learning
+method: grid
+
+# grid ignores the metric for scheduling; it's only used for dashboard plots.
+metric:
+  goal: maximize
+  name: test/acc
+
+parameters:
+  # Fixed.
+  task:
+    value: CIFAR10
+  model:
+    value: RESNET18
+  benchmark:
+    value: continual
+
+  # Swept axes.
+  sparsifier:
+    values: [set, rigl]
+  sparsity:
+    values: [0.1, 0.3, 0.5, 0.70, 0.90, 0.95, 0.99]
+  pruning_ratio:
+    values: [0.1, 0.3, 0.5, 0.7, 0.9]
+  num_mask_updates:
+    values: [10, 100, 1000, 10000, 100000]
+
+command:
+  - bash
+  - ${program}
+  - ${args}
+  - "--log-subdir"
+  - "DST_cifar10_resnet18_continual_sweep"
