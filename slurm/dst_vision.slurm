@@ -5,10 +5,10 @@
 #SBATCH --gpus=h100_20gb:1
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=20G
-#SBATCH --time=12:00:00
+#SBATCH --time=10:00:00
 # Set the array range to the number of agents you want to run in parallel,
 # e.g. `#SBATCH --array=0-8` to launch 9 agents against the same sweep.
-#SBATCH --array=0-21
+#SBATCH --array=0-10
 #SBATCH -o ../slurm_logs/dst_vision_agent_%A_%a.out
 #SBATCH -e ../slurm_logs/dst_vision_agent_%A_%a.err
 #SBATCH --mail-user=fredella.pang@ucalgary.ca
@@ -51,7 +51,7 @@ CUDA_MODULE="cuda/13.2"
 VENV="${VENV:-/scratch/${USER}/fire-env}"
 
 if [[ ! -f "$VENV/bin/activate" ]]; then
-  echo "ERROR: virtual environment not found at: $VENV" >&2
+  echo "ERROR: virtual environment not found at: $VENV" >&2 
   echo "       build it first with ./build.sh $VENV" >&2
   exit 1
 fi
@@ -76,4 +76,4 @@ echo "[INFO] Starting sweep agent for ID: $SWEEP_ID"
 echo "[INFO] Array task ID: ${SLURM_ARRAY_TASK_ID:-n/a}"
 
 # --- 3. Launch the agent (pulls one config, runs run_dst_vision.sh) ---
-wandb agent --count 5 "$SWEEP_ID"
+wandb agent --count 3 "$SWEEP_ID"

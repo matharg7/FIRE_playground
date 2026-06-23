@@ -1,6 +1,6 @@
 program: ../bash_scripts/run_vision_st.sh
 project: DST Continual Learning
-name: DST CIFAR10-RESNET18 Continual Learning
+name: DST CIFAR100-TinyViT Continual Learning
 method: grid
 
 # grid ignores the metric for scheduling; it's only used for dashboard plots.
@@ -11,15 +11,15 @@ metric:
 parameters:
   # Fixed.
   task:
-    value: CIFAR10 #CIFAR100
+    value: CIFAR100 #CIFAR10
   model:
-    value: RESNET18 #TinyViT
+    value: TinyViT #RESNET18 
   benchmark:
     value: continual
 
   # Swept axes.
   sparsifier:
-    values: [set, rigl , dense]
+    values: [set, rigl]
   sparsity:
     values: [0.1, 0.3, 0.5, 0.70, 0.90, 0.95, 0.99]
   pruning_ratio:

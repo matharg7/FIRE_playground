@@ -51,7 +51,7 @@ CUDA_MODULE="cuda/13.2"
 VENV="${VENV:-/scratch/${USER}/fire-env}"
 
 if [[ ! -f "$VENV/bin/activate" ]]; then
-  echo "ERROR: virtual environment not found at: $VENV" >&2
+  echo "ERROR: virtual environment not found at: $VENV" >&2 # >&2 directs output to standard error
   echo "       build it first with ./build.sh $VENV" >&2
   exit 1
 fi
