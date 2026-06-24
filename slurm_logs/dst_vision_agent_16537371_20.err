@@ -24,3 +24,28 @@ wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from WANDB_AP
 	task: CIFAR10
 2026-06-23 14:35:58,423 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=100000 --pruning_ratio=0.7 --sparsifier=rigl --sparsity=0.7 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
 2026-06-23 14:36:03,477 - wandb.wandb_agent - INFO - Running runs: ['roa1d2jd']
+2026-06-23 17:38:58,942 - wandb.wandb_agent - INFO - Cleaning up finished run: roa1d2jd
+2026-06-23 17:38:59,799 - wandb.wandb_agent - INFO - Agent received command: run
+2026-06-23 17:38:59,799 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 100000
+	pruning_ratio: 0.9
+	sparsifier: rigl
+	sparsity: 0.3
+	task: CIFAR10
+2026-06-23 17:38:59,813 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=100000 --pruning_ratio=0.9 --sparsifier=rigl --sparsity=0.3 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+2026-06-23 17:39:04,830 - wandb.wandb_agent - INFO - Running runs: ['jf6ipr12']
+2026-06-23 20:28:19,735 - wandb.wandb_agent - INFO - Cleaning up finished run: jf6ipr12
+2026-06-23 20:28:20,710 - wandb.wandb_agent - INFO - Agent received command: run
+2026-06-23 20:28:20,710 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 100000
+	pruning_ratio: 0.9
+	sparsifier: rigl
+	sparsity: 0.7
+	task: CIFAR10
+2026-06-23 20:28:20,718 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=100000 --pruning_ratio=0.9 --sparsifier=rigl --sparsity=0.7 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+2026-06-23 20:28:25,729 - wandb.wandb_agent - INFO - Running runs: ['qjcxmp40']
+slurmstepd: error: *** JOB 16561448 ON g36 CANCELLED AT 2026-06-23T23:12:22 DUE TO TIME LIMIT ***

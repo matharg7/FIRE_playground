@@ -1,0 +1,31 @@
+wandb: Starting wandb agent 🕵️
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from WANDB_API_KEY.
+2026-06-24 08:34:09,774 - wandb.wandb_agent - INFO - Running runs: []
+2026-06-24 08:34:10,940 - wandb.wandb_agent - INFO - Agent received command: run
+2026-06-24 08:34:10,941 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 100000
+	pruning_ratio: 0.7
+	sparsifier: set
+	sparsity: 0.1
+	task: CIFAR10
+2026-06-24 08:34:10,958 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=100000 --pruning_ratio=0.7 --sparsifier=set --sparsity=0.1 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+2026-06-24 08:34:15,992 - wandb.wandb_agent - INFO - Running runs: ['wxundapt']
+2026-06-24 12:09:21,691 - wandb.wandb_agent - INFO - Cleaning up finished run: wxundapt
+2026-06-24 12:09:22,599 - wandb.wandb_agent - INFO - Agent received command: run
+2026-06-24 12:09:22,600 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 100000
+	pruning_ratio: 0.9
+	sparsifier: rigl
+	sparsity: 0.1
+	task: CIFAR10
+2026-06-24 12:09:22,617 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=100000 --pruning_ratio=0.9 --sparsifier=rigl --sparsity=0.1 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+2026-06-24 12:09:27,642 - wandb.wandb_agent - INFO - Running runs: ['6l02bzsp']
+2026-06-24 15:12:37,976 - wandb.wandb_agent - INFO - Cleaning up finished run: 6l02bzsp
+2026-06-24 15:12:43,649 - wandb.wandb_agent - INFO - Running runs: []
+2026-06-24 15:18:14,559 - wandb.wandb_agent - INFO - Agent received command: exit
+2026-06-24 15:19:15,952 - wandb.wandb_agent - INFO - Received exit command. Killing runs and quitting.
+wandb: Terminating and syncing runs. Press ctrl-c to kill.

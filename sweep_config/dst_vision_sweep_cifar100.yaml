@@ -32,4 +32,4 @@ command:
   - ${program}
   - ${args}
   - "--log-subdir"
-  - "DST_cifar10_resnet18_continual_sweep"
+  - "DST_cifar100_tinyvit_continual_sweep"

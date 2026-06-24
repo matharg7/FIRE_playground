@@ -5,21 +5,18 @@
 #SBATCH --gpus=h100_20gb:1
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=20G
-#SBATCH --time=10:00:00
-# Set the array range to the number of agents you want to run in parallel,
-# e.g. `#SBATCH --array=0-8` to launch 9 agents against the same sweep.
-#SBATCH --array=0-10
-#SBATCH -o ../slurm_logs/dst_vision_agent_%A_%a.out
-#SBATCH -e ../slurm_logs/dst_vision_agent_%A_%a.err
+#SBATCH --time=8:00:00
+#SBATCH -o ../slurm_logs/dst_vision_agent_%j.out
+#SBATCH -e ../slurm_logs/dst_vision_agent_%j.err
 #SBATCH --mail-user=fredella.pang@ucalgary.ca
 #SBATCH --mail-type=ALL
 #
 # Generic W&B sweep-agent launcher for the DST vision fine-tuning recipe.
 #
-# Each array task starts one `wandb agent` that pulls a hyperparameter set
-# (model / lora rank / learning rate) from the sweep server and runs
-# bash_scripts/run_dst_vision.sh with those values. The sweep config (sweep.yaml,
-# created separately) owns the grid; this file is just the agent template.
+# A single job starts one `wandb agent` that pulls 3 hyperparameter sets
+# consecutively from the sweep server and runs bash_scripts/run_dst_vision.sh
+# with those values. The sweep config (sweep.yaml, created separately) owns
+# the grid; this file is just the agent template.
 #
 # Usage (submit from this slurm/ directory so the ../slurm_logs and the sweep's
 # ../bash_scripts/run_lora_math.sh relative paths resolve against the repo root):
@@ -73,7 +70,6 @@ export WANDB_DIR="/scratch/${USER}/wandb_agents"
 mkdir -p "$WANDB_DIR"
 
 echo "[INFO] Starting sweep agent for ID: $SWEEP_ID"
-echo "[INFO] Array task ID: ${SLURM_ARRAY_TASK_ID:-n/a}"
 
-# --- 3. Launch the agent (pulls one config, runs run_dst_vision.sh) ---
+# --- 3. Launch the agent (pulls 3 configs consecutively, runs run_dst_vision.sh) ---
 wandb agent --count 3 "$SWEEP_ID"

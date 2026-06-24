@@ -24,3 +24,28 @@ wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from WANDB_AP
 	task: CIFAR10
 2026-06-23 14:37:59,978 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=100000 --pruning_ratio=0.7 --sparsifier=rigl --sparsity=0.95 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
 2026-06-23 14:38:05,006 - wandb.wandb_agent - INFO - Running runs: ['6xi4tga5']
+2026-06-23 17:57:40,058 - wandb.wandb_agent - INFO - Cleaning up finished run: 6xi4tga5
+2026-06-23 17:57:41,174 - wandb.wandb_agent - INFO - Agent received command: run
+2026-06-23 17:57:41,174 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 100000
+	pruning_ratio: 0.9
+	sparsifier: rigl
+	sparsity: 0.5
+	task: CIFAR10
+2026-06-23 17:57:41,198 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=100000 --pruning_ratio=0.9 --sparsifier=rigl --sparsity=0.5 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+2026-06-23 17:57:46,219 - wandb.wandb_agent - INFO - Running runs: ['v8437cld']
+2026-06-23 20:54:19,162 - wandb.wandb_agent - INFO - Cleaning up finished run: v8437cld
+2026-06-23 20:54:20,101 - wandb.wandb_agent - INFO - Agent received command: run
+2026-06-23 20:54:20,101 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 100000
+	pruning_ratio: 0.9
+	sparsifier: rigl
+	sparsity: 0.9
+	task: CIFAR10
+2026-06-23 20:54:20,222 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=100000 --pruning_ratio=0.9 --sparsifier=rigl --sparsity=0.9 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+2026-06-23 20:54:25,235 - wandb.wandb_agent - INFO - Running runs: ['0gw0v2ke']
+slurmstepd: error: *** JOB 16537371 ON g33 CANCELLED AT 2026-06-23T23:12:23 DUE TO TIME LIMIT ***
