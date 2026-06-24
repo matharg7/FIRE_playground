@@ -36,3 +36,5 @@ wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from WANDB_AP
 	task: CIFAR10
 2026-06-24 14:35:05,929 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=100000 --pruning_ratio=0.9 --sparsifier=rigl --sparsity=0.7 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
 2026-06-24 14:35:10,973 - wandb.wandb_agent - INFO - Running runs: ['bpszyfp6']
+2026-06-24 17:42:43,641 - wandb.wandb_agent - INFO - Cleaning up finished run: bpszyfp6
+wandb: Terminating and syncing runs. Press ctrl-c to kill.

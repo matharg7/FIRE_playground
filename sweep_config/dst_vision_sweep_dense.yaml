@@ -11,13 +11,13 @@ metric:
 parameters:
   # Fixed.
   task:
-    values: CIFAR10
+    value: CIFAR10
   model:
-    values: RESNET18 
+    value: RESNET18
   benchmark:
     value: continual
   sparsifier:
-    values: dense
+    value: dense
 
   # Swept axes.
   seed:
