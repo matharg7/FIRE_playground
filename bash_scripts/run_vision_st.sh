@@ -25,7 +25,7 @@ NUM_MASK_UPDATES="500"
 MODEL="RESNET18"
 TASK="CIFAR10"
 BENCHMARK="continual"
-LOG_SUBDIR=""
+LOG_SUBDIR="Dense"
 GPU="0"
 
 while [[ $# -gt 0 ]]; do

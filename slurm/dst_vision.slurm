@@ -2,7 +2,7 @@
 #SBATCH --job-name=DST_VISION_SWEEP_AGENT
 #SBATCH --account=rrg-yani
 #SBATCH --nodes=1
-#SBATCH --gpus=h100_10gb:1
+#SBATCH --gpus=h100_20gb:1
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=20G
 #SBATCH --time=8:00:00
