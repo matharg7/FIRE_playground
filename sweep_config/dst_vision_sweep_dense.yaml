@@ -21,7 +21,7 @@ parameters:
 
   # Swept axes.
   seed:
-    values: [1, 5, 8]
+    values: [0, 5, 8]
 
 command:
   - bash

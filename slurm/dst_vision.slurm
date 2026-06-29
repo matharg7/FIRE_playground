@@ -5,18 +5,21 @@
 #SBATCH --gpus=h100_20gb:1
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=20G
-#SBATCH --time=8:00:00
-#SBATCH -o ../slurm_logs/dst_vision_agent_%j.out
-#SBATCH -e ../slurm_logs/dst_vision_agent_%j.err
+#SBATCH --time=20:00:00
+# Set the array range to the number of agents you want to run in parallel,
+# e.g. `#SBATCH --array=0-8` to launch 9 agents against the same sweep.
+#SBATCH --array=0-34
+#SBATCH -o ../slurm_logs/dst_vision_agent_%A_%a.out
+#SBATCH -e ../slurm_logs/dst_vision_agent_%A_%a.err
 #SBATCH --mail-user=fredella.pang@ucalgary.ca
 #SBATCH --mail-type=ALL
 #
 # Generic W&B sweep-agent launcher for the DST vision fine-tuning recipe.
 #
-# A single job starts one `wandb agent` that pulls 3 hyperparameter sets
-# consecutively from the sweep server and runs bash_scripts/run_dst_vision.sh
-# with those values. The sweep config (sweep.yaml, created separately) owns
-# the grid; this file is just the agent template.
+# Each array task starts one `wandb agent` that pulls a hyperparameter set
+# (model / lora rank / learning rate) from the sweep server and runs
+# bash_scripts/run_dst_vision.sh with those values. The sweep config (sweep.yaml,
+# created separately) owns the grid; this file is just the agent template.
 #
 # Usage (submit from this slurm/ directory so the ../slurm_logs and the sweep's
 # ../bash_scripts/run_lora_math.sh relative paths resolve against the repo root):
@@ -38,7 +41,7 @@ if [ -z "${1-}" ]; then
   echo "Usage: sbatch slurm/run_lora_math.slurm <SWEEP_ID>"
   exit 1
 fi
-SWEEP_ID="$1"
+SWEEP_ID="$*"
 
 # --- 1. Environment (mirror run_lora_math.sh so the wandb CLI + venv match) ---
 PYTHON_MODULE="python/3.11.5"
@@ -48,7 +51,7 @@ CUDA_MODULE="cuda/13.2"
 VENV="${VENV:-/scratch/${USER}/fire-env}"
 
 if [[ ! -f "$VENV/bin/activate" ]]; then
-  echo "ERROR: virtual environment not found at: $VENV" >&2 
+  echo "ERROR: virtual environment not found at: $VENV" >&2 # >&2 directs output to standard error
   echo "       build it first with ./build.sh $VENV" >&2
   exit 1
 fi
@@ -66,10 +69,12 @@ if [[ ! -f ~/.wandb_token ]]; then
   exit 1
 fi
 export WANDB_API_KEY="$(cat ~/.wandb_token)"
+export WANDB_ENTITY="fredella-pang-university-of-calgary-in-alberta"
 export WANDB_DIR="/scratch/${USER}/wandb_agents"
 mkdir -p "$WANDB_DIR"
 
 echo "[INFO] Starting sweep agent for ID: $SWEEP_ID"
+echo "[INFO] Array task ID: ${SLURM_ARRAY_TASK_ID:-n/a}"
 
-# --- 3. Launch the agent (pulls 3 configs consecutively, runs run_dst_vision.sh) ---
-wandb agent --count 3 "$SWEEP_ID"
+# --- 3. Launch the agent (pulls one config, runs run_dst_vision.sh) ---
+wandb agent --count 10 "$SWEEP_ID"

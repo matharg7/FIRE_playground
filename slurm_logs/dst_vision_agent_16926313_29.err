@@ -1,0 +1,4 @@
+wandb: Starting wandb agent 🕵️
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from WANDB_API_KEY.
+wandb: ERROR Find detailed error logs at: /scratch/freddyp/wandb_agents/wandb/debug-cli.freddyp.log
+Error: entityName required for project query
