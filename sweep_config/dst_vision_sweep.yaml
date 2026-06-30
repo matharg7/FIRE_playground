@@ -17,18 +17,18 @@ parameters:
     value: RESNET18
   benchmark:
     value: continual
+  sparsifier:
+    value: gmp
 
   # Swept axes.
-  sparsifier:
-    values: [set, rigl]
   sparsity:
     values: [0.1, 0.3, 0.5, 0.70, 0.90, 0.95, 0.99]
-  pruning_ratio:
-    values: [0.1, 0.3, 0.5, 0.7, 0.9]
+  # pruning_ratio:
+  #   values: [0.1, 0.3, 0.5, 0.7, 0.9]
   num_mask_updates:
     values: [10, 100, 1000, 10000, 100000]
   seed:
-    values: [5, 8]
+    values: [0, 5, 8]
 
 command:
   - bash

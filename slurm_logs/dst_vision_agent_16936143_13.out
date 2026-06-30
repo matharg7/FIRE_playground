@@ -1,0 +1,28 @@
+==> Loading modules (StdEnv/2023 python/3.11.5 scipy-stack/2026a arrow/24.0.0 cuda/13.2)
+==> Activating venv: /scratch/freddyp/fire-env
+[INFO] Starting sweep agent for ID: fredella-pang-university-of-calgary-in-alberta/DST Continual Learning/onhmhsi1
+[INFO] Array task ID: 13
+==> Loading modules
+==> Activating venv: /scratch/freddyp/fire-env
+Sparsifier : gmp
+Model/Task : RESNET18 / CIFAR10 (continual)
+Seed       : 8
+Run name   : RESNET18_CIFAR10_gmp_s0.9_nmu10
+Log file   : /home/freddyp/projects/def-yani/freddyp/FIRE_playground/logs/DST_cifar10_resnet18_continual_sweep/RESNET18_CIFAR10_gmp_s0.9_nmu10.out
+
+==> Loading modules
+==> Activating venv: /scratch/freddyp/fire-env
+Sparsifier : gmp
+Model/Task : RESNET18 / CIFAR10 (continual)
+Seed       : 5
+Run name   : RESNET18_CIFAR10_gmp_s0.3_nmu100
+Log file   : /home/freddyp/projects/def-yani/freddyp/FIRE_playground/logs/DST_cifar10_resnet18_continual_sweep/RESNET18_CIFAR10_gmp_s0.3_nmu100.out
+
+==> Loading modules
+==> Activating venv: /scratch/freddyp/fire-env
+Sparsifier : gmp
+Model/Task : RESNET18 / CIFAR10 (continual)
+Seed       : 0
+Run name   : RESNET18_CIFAR10_gmp_s0.3_nmu1000
+Log file   : /home/freddyp/projects/def-yani/freddyp/FIRE_playground/logs/DST_cifar10_resnet18_continual_sweep/RESNET18_CIFAR10_gmp_s0.3_nmu1000.out
+

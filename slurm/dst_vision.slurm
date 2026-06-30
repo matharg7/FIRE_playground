@@ -5,7 +5,7 @@
 #SBATCH --gpus=h100_20gb:1
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=20G
-#SBATCH --time=20:00:00
+#SBATCH --time=25:00:00
 # Set the array range to the number of agents you want to run in parallel,
 # e.g. `#SBATCH --array=0-8` to launch 9 agents against the same sweep.
 #SBATCH --array=0-34
@@ -38,7 +38,7 @@ set -euo pipefail
 # --- 0. Validation ---
 if [ -z "${1-}" ]; then
   echo "Error: No SWEEP_ID provided."
-  echo "Usage: sbatch slurm/run_lora_math.slurm <SWEEP_ID>"
+  echo "Usage: sbatch slurm/dst_vision.slurm <SWEEP_ID>"
   exit 1
 fi
 SWEEP_ID="$*"
@@ -77,4 +77,4 @@ echo "[INFO] Starting sweep agent for ID: $SWEEP_ID"
 echo "[INFO] Array task ID: ${SLURM_ARRAY_TASK_ID:-n/a}"
 
 # --- 3. Launch the agent (pulls one config, runs run_dst_vision.sh) ---
-wandb agent --count 10 "$SWEEP_ID"
+wandb agent --count 12 "$SWEEP_ID"

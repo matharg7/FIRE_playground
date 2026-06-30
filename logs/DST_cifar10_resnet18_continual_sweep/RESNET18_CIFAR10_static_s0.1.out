@@ -1,0 +1,32 @@
+------------------------------
+optimizer: adam
+lr: 0.001
+clip_grad_norm: 0.5
+task: CIFAR10
+model: RESNET18
+benchmark: continual
+warm_start_subset_ratio: 10
+log_every: 1
+seed: 5
+batch_size: 256
+disable_wandb: False
+wandb_project: 
+sparsifier: static
+sparsity: 0.1
+num_mask_updates: 10
+t_end_ratio: 0.8
+pruning_ratio: 0.3
+t_accel_ratio: 0.2
+initial_sparsity: 0.0
+------------------------------
+Using device: cuda
+Traceback (most recent call last):
+  File "/project/6066928/freddyp/FIRE_playground/vision/train_st.py", line 357, in <module>
+    main(cfg)
+  File "/project/6066928/freddyp/FIRE_playground/vision/train_st.py", line 235, in main
+    sparsifier = build_sparsifier(cfg, model, optimizer, total_steps)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/project/6066928/freddyp/FIRE_playground/vision/train_st.py", line 176, in build_sparsifier
+    f"total_steps={total_steps} | t_end={t_end} | delta_t={delta_t}"
+                                                           ^^^^^^^
+UnboundLocalError: cannot access local variable 'delta_t' where it is not associated with a value

@@ -1,0 +1,70 @@
+wandb: Starting wandb agent 🕵️
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from WANDB_API_KEY.
+2026-06-29 13:34:38,616 - wandb.wandb_agent - INFO - Running runs: []
+2026-06-29 13:34:40,222 - wandb.wandb_agent - INFO - Agent received command: run
+2026-06-29 13:34:40,222 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 10
+	pruning_ratio: 0.1
+	seed: 8
+	sparsifier: static
+	sparsity: 0.99
+	task: CIFAR10
+2026-06-29 13:34:40,246 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=10 --pruning_ratio=0.1 --seed=8 --sparsifier=static --sparsity=0.99 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+2026-06-29 13:34:45,263 - wandb.wandb_agent - INFO - Running runs: ['vfrr7bsm']
+2026-06-29 13:35:00,794 - wandb.wandb_agent - INFO - Cleaning up finished run: vfrr7bsm
+2026-06-29 13:35:02,658 - wandb.wandb_agent - INFO - Agent received command: run
+2026-06-29 13:35:02,658 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 10
+	pruning_ratio: 0.3
+	seed: 0
+	sparsifier: static
+	sparsity: 0.1
+	task: CIFAR10
+2026-06-29 13:35:02,670 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=10 --pruning_ratio=0.3 --seed=0 --sparsifier=static --sparsity=0.1 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+2026-06-29 13:35:07,686 - wandb.wandb_agent - INFO - Running runs: ['cfwf2b0h']
+2026-06-29 13:35:28,473 - wandb.wandb_agent - INFO - Cleaning up finished run: cfwf2b0h
+2026-06-29 13:35:29,855 - wandb.wandb_agent - INFO - Agent received command: run
+2026-06-29 13:35:29,855 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 10
+	pruning_ratio: 0.3
+	seed: 0
+	sparsifier: static
+	sparsity: 0.3
+	task: CIFAR10
+2026-06-29 13:35:29,863 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=10 --pruning_ratio=0.3 --seed=0 --sparsifier=static --sparsity=0.3 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+2026-06-29 13:35:34,876 - wandb.wandb_agent - INFO - Running runs: ['kdxd7k2b']
+2026-06-29 13:35:50,409 - wandb.wandb_agent - INFO - Cleaning up finished run: kdxd7k2b
+2026-06-29 13:35:52,256 - wandb.wandb_agent - INFO - Agent received command: run
+2026-06-29 13:35:52,256 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 10
+	pruning_ratio: 0.3
+	seed: 0
+	sparsifier: static
+	sparsity: 0.5
+	task: CIFAR10
+2026-06-29 13:35:52,264 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=10 --pruning_ratio=0.3 --seed=0 --sparsifier=static --sparsity=0.5 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+2026-06-29 13:35:57,275 - wandb.wandb_agent - INFO - Running runs: ['1c1mku5l']
+2026-06-29 13:36:07,571 - wandb.wandb_agent - INFO - Cleaning up finished run: 1c1mku5l
+2026-06-29 13:36:10,237 - wandb.wandb_agent - INFO - Agent received command: run
+2026-06-29 13:36:10,237 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 10
+	pruning_ratio: 0.3
+	seed: 0
+	sparsifier: static
+	sparsity: 0.7
+	task: CIFAR10
+2026-06-29 13:36:10,246 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=10 --pruning_ratio=0.3 --seed=0 --sparsifier=static --sparsity=0.7 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+2026-06-29 13:36:15,261 - wandb.wandb_agent - INFO - Running runs: ['p85gcq26']
+2026-06-29 13:36:31,247 - wandb.wandb_agent - ERROR - Detected 5 failed runs in a row, shutting down.
+2026-06-29 13:36:31,268 - wandb.wandb_agent - INFO - To change this value set WANDB_AGENT_MAX_INITIAL_FAILURES=val
+wandb: Terminating and syncing runs. Press ctrl-c to kill.

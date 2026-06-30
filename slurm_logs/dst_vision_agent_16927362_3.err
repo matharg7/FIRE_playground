@@ -1,0 +1,94 @@
+wandb: Starting wandb agent 🕵️
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from WANDB_API_KEY.
+2026-06-29 11:27:58,535 - wandb.wandb_agent - INFO - Running runs: []
+2026-06-29 11:27:59,962 - wandb.wandb_agent - INFO - Agent received command: run
+2026-06-29 11:27:59,962 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 10
+	pruning_ratio: 0.1
+	seed: 5
+	sparsifier: set
+	sparsity: 0.7
+	task: CIFAR10
+2026-06-29 11:27:59,976 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=10 --pruning_ratio=0.1 --seed=5 --sparsifier=set --sparsity=0.7 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+ERROR: unknown option: --seed=5
+2026-06-29 11:28:04,988 - wandb.wandb_agent - INFO - Running runs: ['3jfxmtyw']
+2026-06-29 11:28:04,988 - wandb.wandb_agent - INFO - Cleaning up finished run: 3jfxmtyw
+wandb: Terminating and syncing runs. Press ctrl-c to kill.
+Traceback (most recent call last):
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/wandb/wandb_agent.py", line 683, in agent
+    return run_agent(
+           ^^^^^^^^^^
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/wandb/wandb_agent.py", line 636, in run_agent
+    agent.run()
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/wandb/wandb_agent.py", line 374, in run
+    commands = self._api.agent_heartbeat(agent_id, {}, run_status)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/wandb/apis/internal.py", line 152, in agent_heartbeat
+    return self.api.agent_heartbeat(*args, **kwargs)
+           ^^^^^^^^
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/wandb/apis/internal.py", line 41, in api
+    self._api = InternalApi(*self._api_args, **self._api_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/wandb/sdk/internal/internal_api.py", line 245, in __init__
+    global_settings = wandb_setup.singleton().settings
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/wandb/sdk/wandb_setup.py", line 293, in settings
+    self._load_settings(
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/wandb/sdk/wandb_setup.py", line 210, in _load_settings
+    self._settings = Settings()
+                     ^^^^^^^^^^
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/pydantic/main.py", line 263, in __init__
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/wandb/sdk/wandb_settings.py", line 449, in <lambda>
+    root_dir: str = Field(default_factory=lambda: os.path.abspath(os.getcwd()))
+                                                                  ^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/scratch/freddyp/fire-env/bin/wandb", line 8, in <module>
+    sys.exit(cli())
+             ^^^^^
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/click/core.py", line 1524, in __call__
+    return self.main(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/click/core.py", line 1445, in main
+    rv = self.invoke(ctx)
+         ^^^^^^^^^^^^^^^^
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/click/core.py", line 1912, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/click/core.py", line 1308, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/click/core.py", line 877, in invoke
+    return callback(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/click/decorators.py", line 34, in new_func
+    return f(get_current_context(), *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/wandb/cli/cli.py", line 168, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/wandb/cli/cli.py", line 2081, in agent
+    wandb_agent.agent(
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/wandb/wandb_agent.py", line 701, in agent
+    wandb_setup.singleton().settings.sweep_id = None
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/wandb/sdk/wandb_setup.py", line 293, in settings
+    self._load_settings(
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/wandb/sdk/wandb_setup.py", line 210, in _load_settings
+    self._settings = Settings()
+                     ^^^^^^^^^^
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/pydantic/main.py", line 263, in __init__
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/freddyp/fire-env/lib/python3.11/site-packages/wandb/sdk/wandb_settings.py", line 449, in <lambda>
+    root_dir: str = Field(default_factory=lambda: os.path.abspath(os.getcwd()))
+                                                                  ^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory
+slurmstepd: error: run_script_as_user: couldn't change working dir to /project/6066928/freddyp/FIRE_playground/slurm: No such file or directory
