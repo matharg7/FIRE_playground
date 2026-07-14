@@ -27,7 +27,7 @@ NUM_MASK_UPDATES="500"
 MODEL="RESNET18"
 TASK="CIFAR10"
 BENCHMARK="continual"
-LOG_SUBDIR="Dense"
+LOG_SUBDIR="Static"
 GPU="0"
 SEEDS=""
 
@@ -64,13 +64,13 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# VENV="$HOME/scratch/fire-env"
+# VENV="$SCRATCH/fire-env"
 # if [[ ! -f "$VENV/bin/activate" ]]; then
 #     echo "ERROR: virtual environment not found at: $VENV" >&2
 #     exit 1
 # fi
 
-# HPC modules – not needed when running via Docker.
+# # HPC modules (StdEnv + the four from run_lora_math.sh).
 # echo "==> Loading modules"
 # module load StdEnv/2023 python/3.11.5 scipy-stack/2026a arrow/24.0.0 cuda/13.2
 
@@ -122,38 +122,14 @@ for SEED in "${SEED_ARRAY[@]}"; do
     echo "Log file   : $LOG_FILE"
     echo
 
-    docker run --gpus all --network=host --ipc=host --rm \
-        -e WANDB_API_KEY=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 \
-        -v "$(pwd)":/workspace -w /workspace \
-        fire-pytorch \
-        python train_st.py \
-            --benchmark "$BENCHMARK" \
-            --model "$MODEL" \
-            --task "$TASK" \
-            --sparsifier "$SPARSIFIER" \
-            --sparsity "$SPARSITY" \
-            --pruning-ratio "$PRUNING_RATIO" \
-            --num-mask-updates "$NUM_MASK_UPDATES" \
-            --seed "$SEED" \
-            > "$LOG_FILE" 2>&1
+    python train_st.py \
+        --benchmark "$BENCHMARK" \
+        --model "$MODEL" \
+        --task "$TASK" \
+        --sparsifier "$SPARSIFIER" \
+        --sparsity "$SPARSITY" \
+        --pruning-ratio "$PRUNING_RATIO" \
+        --num-mask-updates "$NUM_MASK_UPDATES" \
+        --seed "$SEED" \
+        > "$LOG_FILE" 2>&1
 done
-
-
-# docker run --gpus all --ipc=host --rm \
-#   -v /home/freddyp/projects/def-yani/freddyp/FIRE_playground:/workspace \
-#   -w /workspace \
-#   nvcr.io/nvidia/pytorch:22.09-py3 \
-#   bash bash_scripts/run_vision_st.sh
-
-#   docker run --gpus all --network=host --ipc=host --rm \
-#     -e WANDB_API_KEY=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 \
-#     -v "$(pwd)":/workspace -w /workspace/bash_scripts \
-#     fire-pytorch \
-#     bash run_vision.sh --sparsifier 0.1 --seed 8
-
-#     docker run --user "$(id -u):$(id -g)" --gpus all --network=host --ipc=host --rm \
-#     -e WANDB_API_KEY=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 \
-#     -v "$(pwd)":/workspace -w /workspace/bash_scripts \
-#     fire-pytorch \
-#     bash run_vision.sh --sparsifier static --sparsity 0.1 --seed 8
-
