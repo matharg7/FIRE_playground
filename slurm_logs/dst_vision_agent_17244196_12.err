@@ -1,0 +1,93 @@
+wandb: Starting wandb agent 🕵️
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from WANDB_API_KEY.
+2026-07-07 19:17:42,160 - wandb.wandb_agent - INFO - Running runs: []
+2026-07-07 19:17:42,882 - wandb.wandb_agent - INFO - Agent received command: run
+2026-07-07 19:17:42,884 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 10000
+	pruning_ratio: 0.5
+	seed: 8
+	sparsifier: rigl
+	sparsity: 0.1
+	task: CIFAR10
+2026-07-07 19:17:42,902 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=10000 --pruning_ratio=0.5 --seed=8 --sparsifier=rigl --sparsity=0.1 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+2026-07-07 19:17:47,925 - wandb.wandb_agent - INFO - Running runs: ['z1payynl']
+2026-07-07 21:09:17,739 - wandb.wandb_agent - INFO - Cleaning up finished run: z1payynl
+2026-07-07 21:09:18,422 - wandb.wandb_agent - INFO - Agent received command: run
+2026-07-07 21:09:18,422 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 10000
+	pruning_ratio: 0.7
+	seed: 5
+	sparsifier: rigl
+	sparsity: 0.7
+	task: CIFAR10
+2026-07-07 21:09:18,436 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=10000 --pruning_ratio=0.7 --seed=5 --sparsifier=rigl --sparsity=0.7 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+2026-07-07 21:09:23,449 - wandb.wandb_agent - INFO - Running runs: ['j4e87cr9']
+2026-07-07 23:04:07,255 - wandb.wandb_agent - INFO - Cleaning up finished run: j4e87cr9
+2026-07-07 23:04:08,417 - wandb.wandb_agent - INFO - Agent received command: run
+2026-07-07 23:04:08,417 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 10000
+	pruning_ratio: 0.7
+	seed: 8
+	sparsifier: rigl
+	sparsity: 0.7
+	task: CIFAR10
+2026-07-07 23:04:08,430 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=10000 --pruning_ratio=0.7 --seed=8 --sparsifier=rigl --sparsity=0.7 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+2026-07-07 23:04:13,445 - wandb.wandb_agent - INFO - Running runs: ['psuatvzi']
+2026-07-08 00:59:00,707 - wandb.wandb_agent - INFO - Cleaning up finished run: psuatvzi
+2026-07-08 00:59:02,357 - wandb.wandb_agent - INFO - Agent received command: run
+2026-07-08 00:59:02,357 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 10000
+	pruning_ratio: 0.9
+	seed: 5
+	sparsifier: rigl
+	sparsity: 0.7
+	task: CIFAR10
+2026-07-08 00:59:02,373 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=10000 --pruning_ratio=0.9 --seed=5 --sparsifier=rigl --sparsity=0.7 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+2026-07-08 00:59:07,389 - wandb.wandb_agent - INFO - Running runs: ['osfrjfbo']
+2026-07-08 02:54:06,180 - wandb.wandb_agent - INFO - Cleaning up finished run: osfrjfbo
+2026-07-08 02:54:07,472 - wandb.wandb_agent - INFO - Agent received command: run
+2026-07-08 02:54:07,472 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 10000
+	pruning_ratio: 0.9
+	seed: 8
+	sparsifier: rigl
+	sparsity: 0.7
+	task: CIFAR10
+2026-07-08 02:54:07,965 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=10000 --pruning_ratio=0.9 --seed=8 --sparsifier=rigl --sparsity=0.7 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+2026-07-08 02:54:13,236 - wandb.wandb_agent - INFO - Running runs: ['z3mos9g9']
+2026-07-08 04:50:47,853 - wandb.wandb_agent - INFO - Cleaning up finished run: z3mos9g9
+2026-07-08 04:50:48,944 - wandb.wandb_agent - INFO - Agent received command: run
+2026-07-08 04:50:48,945 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 100000
+	pruning_ratio: 0.1
+	seed: 5
+	sparsifier: rigl
+	sparsity: 0.7
+	task: CIFAR10
+2026-07-08 04:50:48,983 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=100000 --pruning_ratio=0.1 --seed=5 --sparsifier=rigl --sparsity=0.7 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+2026-07-08 04:50:53,995 - wandb.wandb_agent - INFO - Running runs: ['bf7rlzx5']
+2026-07-08 07:57:20,227 - wandb.wandb_agent - INFO - Cleaning up finished run: bf7rlzx5
+2026-07-08 07:57:21,238 - wandb.wandb_agent - INFO - Agent received command: run
+2026-07-08 07:57:21,238 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 100000
+	pruning_ratio: 0.1
+	seed: 8
+	sparsifier: set
+	sparsity: 0.3
+	task: CIFAR10
+2026-07-08 07:57:21,248 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=100000 --pruning_ratio=0.1 --seed=8 --sparsifier=set --sparsity=0.3 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+2026-07-08 07:57:26,257 - wandb.wandb_agent - INFO - Running runs: ['qr7cdiwa']

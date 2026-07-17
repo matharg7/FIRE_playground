@@ -2,13 +2,13 @@
 #SBATCH --job-name=DST_VISION_SWEEP_AGENT
 #SBATCH --account=rrg-yani
 #SBATCH --nodes=1
-#SBATCH --gpus=h100_20gb:1
-#SBATCH --cpus-per-task=2
+#SBATCH --gpus=h100_10gb:1
+#SBATCH --cpus-per-task=4
 #SBATCH --mem=20G
-#SBATCH --time=25:00:00
+#SBATCH --time=11:30:00
 # Set the array range to the number of agents you want to run in parallel,
 # e.g. `#SBATCH --array=0-8` to launch 9 agents against the same sweep.
-#SBATCH --array=0-34
+#SBATCH --array=0-17
 #SBATCH -o ../slurm_logs/dst_vision_agent_%A_%a.out
 #SBATCH -e ../slurm_logs/dst_vision_agent_%A_%a.err
 #SBATCH --mail-user=fredella.pang@ucalgary.ca
@@ -77,4 +77,4 @@ echo "[INFO] Starting sweep agent for ID: $SWEEP_ID"
 echo "[INFO] Array task ID: ${SLURM_ARRAY_TASK_ID:-n/a}"
 
 # --- 3. Launch the agent (pulls one config, runs run_dst_vision.sh) ---
-wandb agent --count 12 "$SWEEP_ID"
+wandb agent --count 2 "$SWEEP_ID"

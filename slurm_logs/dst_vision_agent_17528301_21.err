@@ -1,0 +1,42 @@
+wandb: Starting wandb agent 🕵️
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from WANDB_API_KEY.
+2026-07-14 02:10:40,091 - wandb.wandb_agent - INFO - Running runs: []
+2026-07-14 02:10:40,840 - wandb.wandb_agent - INFO - Agent received command: run
+2026-07-14 02:10:40,841 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 100000
+	pruning_ratio: 0.5
+	seed: 8
+	sparsifier: set
+	sparsity: 0.9
+	task: CIFAR10
+2026-07-14 02:10:40,880 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=100000 --pruning_ratio=0.5 --seed=8 --sparsifier=set --sparsity=0.9 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+2026-07-14 02:10:45,890 - wandb.wandb_agent - INFO - Running runs: ['m8pwc5ib']
+2026-07-14 07:24:40,958 - wandb.wandb_agent - INFO - Cleaning up finished run: m8pwc5ib
+2026-07-14 07:24:41,767 - wandb.wandb_agent - INFO - Agent received command: run
+2026-07-14 07:24:41,767 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 100000
+	pruning_ratio: 0.7
+	seed: 8
+	sparsifier: set
+	sparsity: 0.99
+	task: CIFAR10
+2026-07-14 07:24:41,776 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=100000 --pruning_ratio=0.7 --seed=8 --sparsifier=set --sparsity=0.99 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+2026-07-14 07:24:46,790 - wandb.wandb_agent - INFO - Running runs: ['6e5x7mix']
+2026-07-14 12:38:08,586 - wandb.wandb_agent - INFO - Cleaning up finished run: 6e5x7mix
+2026-07-14 12:38:09,382 - wandb.wandb_agent - INFO - Agent received command: run
+2026-07-14 12:38:09,383 - wandb.wandb_agent - INFO - Agent starting run with config:
+	benchmark: continual
+	model: RESNET18
+	num_mask_updates: 100000
+	pruning_ratio: 0.9
+	seed: 8
+	sparsifier: set
+	sparsity: 0.5
+	task: CIFAR10
+2026-07-14 12:38:09,391 - wandb.wandb_agent - INFO - About to run command: bash ../bash_scripts/run_vision_st.sh --benchmark=continual --model=RESNET18 --num_mask_updates=100000 --pruning_ratio=0.9 --seed=8 --sparsifier=set --sparsity=0.5 --task=CIFAR10 --log-subdir DST_cifar10_resnet18_continual_sweep
+2026-07-14 12:38:14,405 - wandb.wandb_agent - INFO - Running runs: ['ql0lmiv2']
+slurmstepd: error: *** JOB 17602251 ON g31 CANCELLED AT 2026-07-14T12:40:33 DUE TO TIME LIMIT ***
