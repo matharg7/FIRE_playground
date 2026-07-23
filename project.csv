@@ -1,0 +1,52 @@
+,summary,config,name
+0,"{'iter': 0, '_step': 2, 'level': 0, '_wandb': {'runtime': 60}, '_runtime': 60.362116333, 'test/acc': 0.1763, 'train/lr': 0.0002, 'train/acc': 0.2816, '_timestamp': 1781746985.499331, 'global_step': 2, 'global_epoch': 1, 'dst/itop_rate': 0.09999898481564252, 'dst/mask_sparsity': 0.9000010151843575, 'dst/pruning_ratio': 0.29999706648034724, 'dst/weight_sparsity': 0.9000010151843575}","{'lr': 0.001, 'seed': 0, 'task': 'CIFAR10', 'model': 'RESNET18', 'n_epochs': 100, 'sparsity': 0.9, 'benchmark': 'continual', 'log_every': 1, 'optimizer': 'adam', 'batch_size': 256, 'sparsifier': 'rigl', 't_end_ratio': 0.8, 'disable_wandb': False, 'pruning_ratio': 0.3, 't_accel_ratio': 0.2, 'wandb_project': '', 'clip_grad_norm': 0.5, 'initial_sparsity': 0, 'num_mask_updates': 500, 'warm_start_subset_ratio': 10}",RESNET18_CIFAR10_dst_sparsity_0.9_pruning_ratio_0.3_delta_t_172
+1,"{'iter': 9, '_step': 1000, 'level': 9, '_wandb': {'runtime': 6274}, '_runtime': 6274.036434277, 'test/acc': 0.7875, 'train/lr': 0.001, 'train/acc': 0.99992, '_timestamp': 1781767385.9813683, 'global_step': 1000, 'global_epoch': 999, 'dst/itop_rate': 0.9641103449386408, 'dst/mask_sparsity': 0.9000010151843575, 'dst/pruning_ratio': 3.1096350859294296e-07, 'dst/weight_sparsity': 0.9000010151843575}","{'lr': 0.001, 'seed': 0, 'task': 'CIFAR10', 'model': 'RESNET18', 'n_epochs': 100, 'sparsity': 0.9, 'benchmark': 'continual', 'log_every': 1, 'optimizer': 'adam', 'batch_size': 256, 'sparsifier': 'rigl', 't_end_ratio': 0.8, 'disable_wandb': False, 'pruning_ratio': 0.3, 't_accel_ratio': 0.2, 'wandb_project': '', 'clip_grad_norm': 0.5, 'initial_sparsity': 0, 'num_mask_updates': 500, 'warm_start_subset_ratio': 10}",RESNET18_CIFAR10_dst_sparsity_0.9_pruning_ratio_0.3_delta_t_172
+2,"{'iter': 9, '_step': 1000, 'level': 9, '_wandb': {'runtime': 6162}, '_runtime': 6162.002665701, 'test/acc': 0.8027, 'train/lr': 0.001, 'train/acc': 1, '_timestamp': 1782369749.731002, 'global_step': 1000, 'global_epoch': 999}","{'lr': 0.001, 'seed': 0, 'task': 'CIFAR10', 'model': 'RESNET18', 'n_epochs': 100, 'sparsity': 0.9, 'benchmark': 'continual', 'log_every': 1, 'optimizer': 'adam', 'batch_size': 256, 'sparsifier': 'dense', 't_end_ratio': 0.8, 'disable_wandb': False, 'pruning_ratio': 0.3, 't_accel_ratio': 0.2, 'wandb_project': '', 'clip_grad_norm': 0.5, 'initial_sparsity': 0, 'num_mask_updates': 500, 'warm_start_subset_ratio': 10}",RESNET18_CIFAR10_dense
+3,"{'iter': 9, '_step': 1000, 'level': 9, '_wandb': {'runtime': 6207}, '_runtime': 6207.638951324, 'test/acc': 0.7834, 'train/lr': 0.001, 'train/acc': 0.99968, '_timestamp': 1782451758.9614632, 'global_step': 1000, 'global_epoch': 999, 'dst/itop_rate': 1, 'dst/mask_sparsity': 0.8968325022824145, 'dst/pruning_ratio': 0.8967749934311772, 'dst/weight_sparsity': 0.8968325022824145}","{'lr': 0.001, 'seed': 5, 'task': 'CIFAR10', 'model': 'RESNET18', 'n_epochs': 100, 'sparsity': 0.9, 'benchmark': 'continual', 'log_every': 1, 'optimizer': 'adam', 'batch_size': 256, 'sparsifier': 'gmp', 't_end_ratio': 0.8, 'disable_wandb': False, 'pruning_ratio': 0.3, 't_accel_ratio': 0.2, 'wandb_project': '', 'clip_grad_norm': 0.5, 'initial_sparsity': 0, 'num_mask_updates': 500, 'warm_start_subset_ratio': 10}",RESNET18_CIFAR10_gmp_accel_sparsity_0.0_final_sparsity_0.9_delta_t_129
+4,"{'iter': 4, '_step': 447, 'level': 4, '_wandb': {'runtime': 1709}, '_runtime': 1709.217505771, 'test/acc': 0.718, 'train/lr': 0.001, 'train/acc': 0.9982, '_timestamp': 1783017971.6008253, 'global_step': 447, 'global_epoch': 446, 'dst/itop_rate': 0.29999914234424974, 'dst/mask_sparsity': 0.7000008576557503, 'dst/weight_sparsity': 0.7000008576557503}","{'lr': 0.001, 'seed': 5, 'task': 'CIFAR10', 'model': 'RESNET18', 'n_epochs': 100, 'sparsity': 0.7, 'benchmark': 'continual', 'log_every': 1, 'optimizer': 'adam', 'batch_size': 256, 'sparsifier': 'static', 't_end_ratio': 0.8, 'disable_wandb': False, 'pruning_ratio': 0.3, 't_accel_ratio': 0.2, 'wandb_project': '', 'clip_grad_norm': 0.5, 'initial_sparsity': 0, 'num_mask_updates': 500, 'warm_start_subset_ratio': 10}",RESNET18_CIFAR10_static_sparsity_0.7
+5,"{'iter': 9, '_step': 1000, 'level': 9, '_wandb': {'runtime': 14119}, '_runtime': 14119.972347563, 'test/acc': 0.7817, 'train/lr': 0.001, 'train/acc': 0.99838, '_timestamp': 1783128564.9293272, 'global_step': 1000, 'global_epoch': 999, 'dst/itop_rate': 0.29999914234424974, 'dst/mask_sparsity': 0.7000008576557503, 'dst/weight_sparsity': 0.7000008576557503}","{'lr': 0.001, 'seed': 5, 'task': 'CIFAR10', 'model': 'RESNET18', 'n_epochs': 100, 'sparsity': 0.7, 'benchmark': 'continual', 'log_every': 1, 'optimizer': 'adam', 'batch_size': 256, 'sparsifier': 'static', 't_end_ratio': 0.8, 'disable_wandb': False, 'pruning_ratio': 0.3, 't_accel_ratio': 0.2, 'wandb_project': '', 'clip_grad_norm': 0.5, 'initial_sparsity': 0, 'num_mask_updates': 500, 'warm_start_subset_ratio': 10}",RESNET18_CIFAR10_static_sparsity_0.7
+6,"{'iter': 9, '_step': 1000, 'level': 9, '_wandb': {'runtime': 28910}, '_runtime': 28910.640972582, 'test/acc': 0.7822, 'train/lr': 0.001, 'train/acc': 0.99962, '_timestamp': 1783477495.4114208, 'global_step': 1000, 'global_epoch': 999, 'dst/itop_rate': 0.29999914234424974, 'dst/mask_sparsity': 0.7000008576557503, 'dst/weight_sparsity': 0.7000008576557503}","{'lr': 0.001, 'seed': 8, 'task': 'CIFAR10', 'model': 'RESNET18', 'n_epochs': 100, 'sparsity': 0.7, 'benchmark': 'continual', 'log_every': 1, 'optimizer': 'adam', 'batch_size': 256, 'sparsifier': 'static', 't_end_ratio': 0.8, 'disable_wandb': False, 'pruning_ratio': 0.3, 't_accel_ratio': 0.2, 'wandb_project': '', 'clip_grad_norm': 0.5, 'initial_sparsity': 0, 'num_mask_updates': 500, 'warm_start_subset_ratio': 10}",RESNET18_CIFAR10_static_sparsity_0.7
+7,"{'iter': 9, '_step': 1000, 'level': 9, '_wandb': {'runtime': 28341}, '_runtime': 28341.719652565, 'test/acc': 0.8047, 'train/lr': 0.001, 'train/acc': 1, '_timestamp': 1783477014.8864896, 'global_step': 1000, 'global_epoch': 999}","{'lr': 0.001, 'seed': 8, 'task': 'CIFAR10', 'model': 'RESNET18', 'n_epochs': 100, 'sparsity': 0.7, 'benchmark': 'continual', 'log_every': 1, 'optimizer': 'adam', 'batch_size': 256, 'sparsifier': 'dense', 't_end_ratio': 0.8, 'disable_wandb': False, 'pruning_ratio': 0.3, 't_accel_ratio': 0.2, 'wandb_project': '', 'clip_grad_norm': 0.5, 'initial_sparsity': 0, 'num_mask_updates': 500, 'warm_start_subset_ratio': 10}",RESNET18_CIFAR10_dense
+8,"{'iter': 9, '_step': 1000, 'level': 9, '_wandb': {'runtime': 26177}, '_runtime': 26177.420317393, 'test/acc': 0.8002, 'train/lr': 0.001, 'train/acc': 0.99996, '_timestamp': 1783481586.3418407, 'global_step': 1000, 'global_epoch': 999}","{'lr': 0.001, 'seed': 5, 'task': 'CIFAR10', 'model': 'RESNET18', 'n_epochs': 100, 'sparsity': 0.7, 'benchmark': 'continual', 'log_every': 1, 'optimizer': 'adam', 'batch_size': 256, 'sparsifier': 'dense', 't_end_ratio': 0.8, 'disable_wandb': False, 'pruning_ratio': 0.3, 't_accel_ratio': 0.2, 'wandb_project': '', 'clip_grad_norm': 0.5, 'initial_sparsity': 0, 'num_mask_updates': 500, 'warm_start_subset_ratio': 10}",RESNET18_CIFAR10_dense
+
+
+
+9,"{
+    'iter': 9, 
+    '_step': 1000, 
+    'level': 9, 
+    '_wandb': {'runtime': 70630}, 
+    '_runtime': 70630.265572284, 
+    'test/acc': 0.7978, 
+    'train/lr': 0.001, 
+    'train/acc': 1, 
+    '_timestamp': 1784046371.03241, 
+    'global_step': 1000, 
+    'global_epoch': 999, 
+    'dst/itop_rate': 0.899999089834714, 
+    'dst/mask_sparsity': 0.10000091016528602, 
+    'dst/weight_sparsity': 0.10000091016528602}",
+    
+    "{
+        'lr': 0.001, 
+        'seed': 8, 
+        'task': 'CIFAR10', 
+        'model': 'RESNET18', 
+        'n_epochs': 100, 
+        'sparsity': 0.1, 
+        'benchmark': 'continual', 
+        'log_every': 1, 
+        'optimizer': 'adam', 
+        'batch_size': 256, 
+        'sparsifier': 'static', 
+        't_end_ratio': 0.8, 
+        'disable_wandb': False, 
+        'pruning_ratio': 0.3, 
+        't_accel_ratio': 0.2, 
+        'wandb_project': '', 
+        'clip_grad_norm': 0.5, 
+        'initial_sparsity': 0, 
+        'num_mask_updates': 500, 
+        'warm_start_subset_ratio': 10
+    }",
+RESNET18_CIFAR10_static_sparsity_0.1

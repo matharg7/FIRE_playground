@@ -13,13 +13,15 @@ def parse_filename(filename):
     Returns a dict of parameters or None if parsing fails.
     """
     basename = os.path.basename(filename)
-    pattern = r'RESNET18_CIFAR10_(?P<sparsifier>[a-zA-Z0-9]+)_s(?P<sparsity>[0-9.]+)_pr(?P<pruning_ratio>[0-9.]+)_nmu(?P<nmu>\d+)\.out'
+    pattern = r'RESNET18_CIFAR10_(?P<sparsifier>[a-zA-Z0-9]+)_s(?P<sparsity>[0-9.]+)_nmu(?P<nmu>\d+)\.out'
+    # pattern = r'RESNET18_CIFAR10_(?P<sparsifier>[a-zA-Z0-9]+)_s(?P<sparsity>[0-9.]+)_pr(?P<pruning_ratio>[0-9.]+)_nmu(?P<nmu>\d+)\.out'
+    
     match = re.match(pattern, basename)
     if match:
         return {
             'sparsifier': match.group('sparsifier'),
             'sparsity': float(match.group('sparsity')),
-            'pruning_ratio': float(match.group('pruning_ratio')),
+            # 'pruning_ratio': float(match.group('pruning_ratio')),
             'num_mask_updates': int(match.group('nmu')),
             'filepath': filename,
             'basename': basename
@@ -66,22 +68,22 @@ def main():
     )
     parser.add_argument(
         "--sparsifier", 
-        default="rigl",
+        default="gmp",
         help="Sparsifier algorithm (e.g. rigl, set). Can be comma-separated, 'all', or '*' (default: rigl)."
     )
     parser.add_argument(
         "--pruning-ratio", 
-        default="0.3",
+        default="*",
         help="Pruning ratio (e.g. 0.3). Can be comma-separated, 'all', or '*' (default: 0.3)."
     )
     parser.add_argument(
         "--num-mask-updates", 
-        default="1000",
+        default="100000",
         help="Number of mask updates (e.g. 1000). Can be comma-separated, 'all', or '*' (default: 1000)."
     )
     parser.add_argument(
         "--sparsity", 
-        default="0.9",
+        default="0.1",
         help="Sparsity target (e.g. 0.9). Can be comma-separated, 'all', or '*' (default: 0.9)."
     )
     parser.add_argument(
@@ -214,8 +216,8 @@ def main():
     print(f"\nPlotting {len(matched_runs)} run(s):")
     
     plt.figure(figsize=(10, 6))
-    
-    for r in sorted(matched_runs, key=lambda x: (x['sparsifier'], x['sparsity'], x['pruning_ratio'], x['num_mask_updates'])):
+    for r in sorted(matched_runs, key=lambda x: (x['sparsifier'], x['sparsity'], x['num_mask_updates'])):   
+    # for r in sorted(matched_runs, key=lambda x: (x['sparsifier'], x['sparsity'], x['pruning_ratio'], x['num_mask_updates'])):
         print(f"  - {r['basename']}")
         data = parse_log_file(r['filepath'])
         if not data:
@@ -223,7 +225,9 @@ def main():
             continue
             
         steps, accs = zip(*data)
-        label = f"{r['sparsifier']} (s={r['sparsity']}, pr={r['pruning_ratio']}, nmu={r['num_mask_updates']})"
+        # label = f"{r['sparsifier']} (s={r['sparsity']}, pr={r['pruning_ratio']}, nmu={r['num_mask_updates']})"
+        label = f"{r['sparsifier']} (s={r['sparsity']}, nmu={r['num_mask_updates']})"
+       
         plt.plot(steps, accs, label=label, alpha=0.8)
         
     plt.title("Test Accuracy vs Steps (Global Epoch)", y=1.15)
