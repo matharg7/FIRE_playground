@@ -288,5 +288,3 @@ def main_grid():
 if __name__ == "__main__":
     main_grid()
 
-# RESNET18_CIFAR10_gmp_accel_sparsity_0.0_final_sparsity_0.99_delta_t_6480_sparsifier_gmp_seed0.csv
-# RESNET18_CIFAR10_gmp_accel_sparsity_0.0_final_sparsity_0.7_delta_t_8_sparsifier_gmp_seed0.csv
