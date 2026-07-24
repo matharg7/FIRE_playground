@@ -1,5 +1,5 @@
 import matplotlib.pyplot as plt
-from plotter.plotter import set_default, main
+from plotter.garbage.plotter import set_default, main
 
 # Varying sparsity (fix sparsity + nmu)
 set_default("rigl",nmu= 1000, pr=0.9, variable = "sparsity")
