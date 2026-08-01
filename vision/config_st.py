@@ -54,6 +54,11 @@ CONFIG = {
     # GMP only
     't_accel_ratio': 0.2,        # t_accel = t_accel_ratio * total_steps
     'initial_sparsity': 0.0,     # sparsity at step 0 (dense start)
+
+    # ---- LR Scheduler ----
+    'use_cosine_lr': False,        # True → CosineAnnealingLR; False → warmup+target_lr
+    'cosine_T_max_epochs': 0,      # T_max for CosineAnnealingLR (0 = use real_epochs per chunk)
+    'cosine_eta_min': 0.0,         # eta_min for CosineAnnealingLR
 }
 
 
