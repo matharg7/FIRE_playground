@@ -19,6 +19,9 @@ DEF_SPARSITY, DEF_PRUNING_RATIO, NMU, DEF_DT, DEF_GDT = 0, 0, 0, 0, 0
 X_LIM = (0, 1000)
 Y_LIM = (0, 0.9)
 
+zx_lim = (750,1000)
+zy_lim = (0.75,0.85)
+
 # Clean dictionary-based nmu -> (dt, gdt) mapping
 NMU_TO_DT = {
     100000: (1, 1),
@@ -166,7 +169,7 @@ def plot_subplot(ax, dense_mean, dense_std):
     # --- Dense baseline (mean ± std) ---
     if dense_mean is not None:
         x = np.arange(len(dense_mean))
-        ax.plot(x, dense_mean, label="Dense", color='black', linestyle='-', linewidth=0.4, alpha=0.7, zorder=10)
+        ax.plot(x, dense_mean, label="Dense", color='black', linestyle='-', linewidth=3, alpha=0.7, zorder=10)
         ax.fill_between(x, dense_mean - dense_std, dense_mean + dense_std, color='black', alpha=0.2, zorder=0)
 
     # --- Sparsifiers (mean ± std) ---
@@ -176,11 +179,11 @@ def plot_subplot(ax, dense_mean, dense_std):
         mean, std = load_and_aggregate(template)
         if mean is not None:
             x = np.arange(len(mean))
-            ax.plot(x, mean, label=labels[i], color=colors[i], linestyle='-', linewidth=0.3, alpha=0.7, zorder=8)
+            ax.plot(x, mean, label=labels[i], color=colors[i], linestyle='-', linewidth=1.5, alpha=0.7, zorder=8)
             ax.fill_between(x, mean - std, mean + std, color=colors[i], alpha=0.2, zorder=2)
 
-    ax.set_xlim(X_LIM)
-    ax.set_ylim(Y_LIM)
+    ax.set_xlim(zx_lim)
+    ax.set_ylim(zy_lim)
     ax.grid(which='major', color='#666666', linestyle='-', linewidth=0.4)
     ax.grid(which='minor', color='#999999', linestyle=':', linewidth=0.3)
     ax.minorticks_on()
@@ -236,55 +239,56 @@ def main_grid():
                  fontsize=14, fontweight='bold', y=1.02)
 
     plt.tight_layout()
-    plt.savefig("plotter/plots/full_grid_pr0.3.svg", bbox_inches='tight')
-    plt.savefig("plotter/plots/full_grid_pr0.3.png", bbox_inches='tight', dpi=150)
+    plt.savefig("plotter/plots/full_grid_pr0.3_zoomed2.svg", bbox_inches='tight')
+    plt.savefig("plotter/plots/full_grid_pr0.3_zoomed2.png", bbox_inches='tight', dpi=150)
     plt.show()
 
 
 # --- Old single-plot main() (commented out as fallback) ---
-# def main(zoom=False):
-#     global X_LIM, Y_LIM
-#     if zoom:
-#         X_LIM = (700, 1000)
-#         Y_LIM = (0.7, 0.9)
-#         zoom_text = "_Zoomed"
-#     else:
-#         X_LIM = (0, 1000)
-#         Y_LIM = (0, 0.9)
-#         zoom_text = ""
-#
-#     plt.figure(figsize=(20, 8))
-#
-#     dense_template = build_path_template("dense")
-#     dense_mean, dense_std = load_and_aggregate(dense_template)
-#     if dense_mean is not None:
-#         x = np.arange(len(dense_mean))
-#         plt.plot(x, dense_mean, label="Dense", color='black', linestyle='-', linewidth=0.4, alpha=0.7, zorder=10)
-#         plt.fill_between(x, dense_mean - dense_std, dense_mean + dense_std, color='black', alpha=0.2, zorder=0)
-#
-#     sparsifier_names = ["rigl", "set", "gmp", "static"]
-#     for i, name in enumerate(sparsifier_names):
-#         template = build_path_template(name)
-#         mean, std = load_and_aggregate(template)
-#         if mean is not None:
-#             x = np.arange(len(mean))
-#             plt.plot(x, mean, label=labels[i], color=colors[i], linestyle='-', linewidth=0.3, alpha=0.7, zorder=8)
-#             plt.fill_between(x, mean - std, mean + std, color=colors[i], alpha=0.2, zorder=2)
-#
-#     plt.legend()
-#     plt.grid(True)
-#     plt.minorticks_on()
-#     plt.xlim(X_LIM)
-#     plt.ylim(Y_LIM)
-#     plt.grid(which='major', color='#666666', linestyle='-', linewidth=0.8)
-#     plt.grid(which='minor', color='#999999', linestyle=':', linewidth=0.5)
-#     plt.xlabel("Steps")
-#     plt.ylabel("Test Accuracy (%)")
-#     plt.title(f"Sparsity: {DEF_SPARSITY}  Pruning Ratio: {DEF_PRUNING_RATIO}  NMU: {NMU}")
-#     plt.savefig(f"plotter/plots/plot_s{DEF_SPARSITY}_pr{DEF_PRUNING_RATIO}_nmu{NMU}{zoom_text}.svg")
-#     plt.show()
+def main(zoom=False):
+    global X_LIM, Y_LIM
+    if zoom:
+        X_LIM = (700, 1000)
+        Y_LIM = (0.7, 0.9)
+        zoom_text = "_Zoomed"
+    else:
+        X_LIM = (0, 1000)
+        Y_LIM = (0, 0.9)
+        zoom_text = ""
+
+    plt.figure(figsize=(20, 8))
+
+    dense_template = build_path_template("dense")
+    dense_mean, dense_std = load_and_aggregate(dense_template)
+    if dense_mean is not None:
+        x = np.arange(len(dense_mean))
+        plt.plot(x, dense_mean, label="Dense", color='black', linestyle='-', linewidth=0.4, alpha=0.7, zorder=10)
+        plt.fill_between(x, dense_mean - dense_std, dense_mean + dense_std, color='black', alpha=0.2, zorder=0)
+
+    sparsifier_names = ["rigl", "set", "gmp", "static"]
+    for i, name in enumerate(sparsifier_names):
+        template = build_path_template(name)
+        mean, std = load_and_aggregate(template)
+        if mean is not None:
+            x = np.arange(len(mean))
+            plt.plot(x, mean, label=labels[i], color=colors[i], linestyle='-', linewidth=0.3, alpha=0.7, zorder=8)
+            plt.fill_between(x, mean - std, mean + std, color=colors[i], alpha=0.2, zorder=2)
+
+    plt.legend()
+    plt.grid(True)
+    plt.minorticks_on()
+    plt.xlim(X_LIM)
+    plt.ylim(Y_LIM)
+    plt.grid(which='major', color='#666666', linestyle='-', linewidth=0.8)
+    plt.grid(which='minor', color='#999999', linestyle=':', linewidth=0.5)
+    plt.xlabel("Steps")
+    plt.ylabel("Test Accuracy (%)")
+    plt.title(f"Sparsity: {DEF_SPARSITY}  Pruning Ratio: {DEF_PRUNING_RATIO}  NMU: {NMU}")
+    plt.savefig(f"plotter/plots/png/plot_s{DEF_SPARSITY}_pr{DEF_PRUNING_RATIO}_nmu{NMU}{zoom_text}.png")
+    plt.show()
 
 
 if __name__ == "__main__":
-    main_grid()
+    # main_grid()
+    main()
 
