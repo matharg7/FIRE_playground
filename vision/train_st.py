@@ -4,6 +4,7 @@ import sys
 import os
 import torch
 import torch.nn as nn
+from torch.optim.lr_scheduler import CosineAnnealingLR
 import wandb
 from tqdm import tqdm
 import numpy as np
@@ -260,6 +261,11 @@ def main(cfg):
         optimizer = get_optimizer(model, cfg)
         target_lr = [pg['lr'] for pg in optimizer.param_groups]
 
+        # Create the LR scheduler for this chunk
+        if cfg.use_cosine_lr:
+            T_max = cfg.cosine_T_max_epochs if cfg.cosine_T_max_epochs > 0 else real_epochs
+            cosine_scheduler = CosineAnnealingLR(optimizer, T_max=T_max, eta_min=cfg.cosine_eta_min)
+
         if sparsifier is not None:
             sparsifier.optimizer = optimizer
             if hasattr(sparsifier, 'zero_inactive_param_momentum_buffers'):
@@ -269,16 +275,20 @@ def main(cfg):
             pbar.set_description(f'Iter {i_iter} | Epoch {epoch}')
             do_logging = global_epoch % log_every == 0
 
-            # Warmup LR scheduling (from https://arxiv.org/abs/2406.02596)
-            ls = global_step % cfg.n_epochs
-            we = cfg.n_epochs * warmup_rate
-            remain = (epoch + 1) / cfg.n_epochs - int((epoch + 1) / cfg.n_epochs)
-            for i, pg in enumerate(optimizer.param_groups):
-                if ls < we:
-                    current_lr = initial_lr + (target_lr[i] - initial_lr) * remain * (10 // log_every)
-                else:
-                    current_lr = target_lr[i]
-                pg['lr'] = current_lr
+            if cfg.use_cosine_lr:
+                cosine_scheduler.step()
+                current_lr = optimizer.param_groups[0]['lr']
+            else:
+                # Warmup LR scheduling (from https://arxiv.org/abs/2406.02596)
+                ls = global_step % cfg.n_epochs
+                we = cfg.n_epochs * warmup_rate
+                remain = (epoch + 1) / cfg.n_epochs - int((epoch + 1) / cfg.n_epochs)
+                for i, pg in enumerate(optimizer.param_groups):
+                    if ls < we:
+                        current_lr = initial_lr + (target_lr[i] - initial_lr) * remain * (10 // log_every)
+                    else:
+                        current_lr = target_lr[i]
+                    pg['lr'] = current_lr
 
             total = correct = 0
             for inputs, labels, _orig_idx, _chunk_idx in trainloader:
