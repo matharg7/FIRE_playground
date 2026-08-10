@@ -5,7 +5,7 @@
 #SBATCH --gpus=l40s
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=20G
-#SBATCH --time=12:00:00
+#SBATCH --time=8:00:00
 # Set the array range to the number of agents you want to run in parallel,
 # e.g. `#SBATCH --array=0-8` to launch 9 agents against the same sweep.
 #SBATCH --array=0-49
@@ -77,4 +77,4 @@ echo "[INFO] Starting sweep agent for ID: $SWEEP_ID"
 echo "[INFO] Array task ID: ${SLURM_ARRAY_TASK_ID:-n/a}"
 
 # --- 3. Launch the agent (pulls one config, runs run_dst_vision.sh) ---
-wandb agent --count 4 "$SWEEP_ID"
+wandb agent --count 2 "$SWEEP_ID"
