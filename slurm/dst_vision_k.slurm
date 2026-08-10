@@ -5,10 +5,10 @@
 #SBATCH --gpus=l40s
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=20G
-#SBATCH --time=2:30:00
+#SBATCH --time=12:00:00
 # Set the array range to the number of agents you want to run in parallel,
 # e.g. `#SBATCH --array=0-8` to launch 9 agents against the same sweep.
-#SBATCH --array=0-17
+#SBATCH --array=0-49
 #SBATCH -o ../slurm_logs/dst_vision_agent_%A_%a.out
 #SBATCH -e ../slurm_logs/dst_vision_agent_%A_%a.err
 #SBATCH --mail-user=fredella.pang@ucalgary.ca
@@ -16,7 +16,7 @@
 #
 # Generic W&B sweep-agent launcher for the DST vision fine-tuning recipe.
 #
-# Each array task starts one `wandb agent` that pulls a hyperparameter set
+# Each array task starts one `wandb agent` that pulls a hyperparameter set 14+27+56+20=177
 # (model / lora rank / learning rate) from the sweep server and runs
 # bash_scripts/run_dst_vision.sh with those values. The sweep config (sweep.yaml,
 # created separately) owns the grid; this file is just the agent template.
@@ -77,4 +77,4 @@ echo "[INFO] Starting sweep agent for ID: $SWEEP_ID"
 echo "[INFO] Array task ID: ${SLURM_ARRAY_TASK_ID:-n/a}"
 
 # --- 3. Launch the agent (pulls one config, runs run_dst_vision.sh) ---
-wandb agent --count 1 "$SWEEP_ID"
+wandb agent --count 4 "$SWEEP_ID"
