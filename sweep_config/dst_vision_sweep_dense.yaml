@@ -3,6 +3,8 @@ project: DST Continual Learning
 name: Dense Continual Learning
 method: grid
 
+
+# num runs = 3
 # grid ignores the metric for scheduling; it's only used for dashboard plots.
 metric:
   goal: maximize

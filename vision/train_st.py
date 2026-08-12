@@ -3,6 +3,7 @@ import math
 import sys
 import os
 import torch
+from torch.optim.lr_scheduler import CosineAnnealingLR
 import torch.nn as nn
 from torch.optim.lr_scheduler import CosineAnnealingLR
 import wandb
@@ -172,10 +173,12 @@ def build_sparsifier(cfg, model, optimizer, total_steps):
     ]
     sparsifier.prepare(model, sparse_config)
 
+    
     print(
         f"[Sparsifier] {cfg.sparsifier} | sparsity={cfg.sparsity} | "
         f"total_steps={total_steps} | t_end={t_end} "#| delta_t={delta_t}"
     )
+  
     return sparsifier
 
 
