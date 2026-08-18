@@ -76,6 +76,15 @@ for run in runs:
         skipped += 1
         continue
 
+    # Build path early so we can skip already-exported files
+    filename = build_filename(run)
+    outpath  = os.path.join(CSV_ROOT, task, sparsifier, filename)
+
+    if os.path.exists(outpath):
+        skipped += 1
+        print(f"  ⏭  {outpath}  (already exists)")
+        continue
+
     # Pull history
     history = run.history(samples=10_000)
 
@@ -85,10 +94,6 @@ for run in runs:
         continue
 
     df = pd.DataFrame({"accuracy": history["test/acc"]})
-
-    # Build path & save
-    filename = build_filename(run)
-    outpath  = os.path.join(CSV_ROOT, task, sparsifier, filename)
     df.to_csv(outpath, index=False)
 
     exported += 1
