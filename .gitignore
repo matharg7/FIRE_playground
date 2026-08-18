@@ -1,6 +1,8 @@
 vision/data
 wandb/
 *.bin
+slurm_logs/
+logs/DST_cifar100_tinyvit_continual_sweep
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -37,7 +37,7 @@ CONFIG = {
     'seed': 5,
     'batch_size': 256,
     'disable_wandb': False,
-    'wandb_project': '',          # override wandb project name (empty = auto)
+    'wandb_project': "tester",          # override wandb project name (empty = auto)4631652
 
     # ---- Sparsifier ----
     # Which algorithm to use.  'dense' runs without any sparsifier (baseline).
@@ -56,7 +56,7 @@ CONFIG = {
     'initial_sparsity': 0.0,     # sparsity at step 0 (dense start)
 
     # ---- LR Scheduler ----
-    'use_cosine_lr': False,        # True → CosineAnnealingLR; False → warmup+target_lr
+    'use_cosine_lr': True,        # True → CosineAnnealingLR; False → warmup+target_lr
     'cosine_T_max_epochs': 0,      # T_max for CosineAnnealingLR (0 = use real_epochs per chunk)
     'cosine_eta_min': 0.0,         # eta_min for CosineAnnealingLR
 }

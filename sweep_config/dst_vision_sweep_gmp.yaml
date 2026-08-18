@@ -18,17 +18,18 @@ parameters:
   benchmark:
     value: continual
   sparsifier:
-    value: static
+    value: gmp
 
 
-# num runs = 21
+
+# num runs = 35*3
   # Swept axes.
   sparsity:
     values: [0.1, 0.3, 0.5, 0.70, 0.90, 0.95, 0.99]
   # pruning_ratio:
   #   values: [0.1, 0.3, 0.5, 0.7, 0.9]
-  # num_mask_updates:
-    # values: [10, 100, 1000, 10000, 100000]
+  num_mask_updates:
+    values: [10, 100, 1000, 10000, 100000]
   seed:
     values: [0, 5, 8]
 
@@ -38,3 +39,6 @@ command:
   - ${args}
   - "--log-subdir"
   - "DST_cifar10_resnet18_continual_sweep"
+
+
+  
