@@ -9,7 +9,7 @@ from glob import glob
 # ── Paths ────────────────────────────────────────────────────────────
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 CSV_ROOT   = os.path.join(BASE_DIR, "csv_export")
-PLOT_DIR   = os.path.join(BASE_DIR, "plotter", "plots")
+PLOT_DIR   = os.path.join(BASE_DIR, "plotter", "plots", "svg")
 
 os.makedirs(PLOT_DIR, exist_ok=True)
 
@@ -33,7 +33,8 @@ LABELS = {
 BLK_LINE_WIDTH   = 1.5
 COLOR_LINE_WIDTH = 0.5
 X_LIM = (0, 1000)
-Y_LIM = (0, 0.9)
+Y_LIM = (0,.9)
+# Y_LIM = (0.25,.35)
 
 
 # ── File-path builders (match export_data.py naming) ────────────────
@@ -79,6 +80,8 @@ def load_and_aggregate(path_fn):
     if not dfs:
         return None, None
 
+    min_len = min(len(d) for d in dfs)
+    dfs = [d[:min_len] for d in dfs]
     stacked = np.stack(dfs, axis=0)
     return np.mean(stacked, axis=0), np.std(stacked, axis=0)
 
@@ -134,16 +137,16 @@ def plot_subplot(ax, task, sparsity, nmu, pruning_ratio, dense_mean, dense_std):
 
 
 # ── Grid plot (NMU rows × Sparsity cols) ────────────────────────────
-def main_grid(task="CIFAR10", pruning_ratio=0.3,
+def main_grid(task="CIFAR100", pruning_ratio=0.3,
               sparsity_list=None, nmu_list=None):
     """
     Create a grid of subplots for one task.
     Rows = nmu values, Columns = sparsity values.
     """
     if sparsity_list is None:
-        sparsity_list = [0.1, 0.7, 0.9, 0.99]
+        sparsity_list = [0.1,0.3,0.5, 0.7, 0.9,0.95, 0.99]
     if nmu_list is None:
-        nmu_list = [10, 1000, 10000, 100000]
+        nmu_list = [10, 100, 1000, 10000, 100000]
 
     n_rows = len(nmu_list)
     n_cols = len(sparsity_list)
@@ -192,11 +195,19 @@ def main_grid(task="CIFAR10", pruning_ratio=0.3,
         fontsize=14, fontweight="bold", y=1.02,
     )
 
+
     plt.tight_layout()
     # Uncomment to save:
+    plt.savefig(os.path.join(PLOT_DIR,
+        f"{task}_grid_pr{pruning_ratio}.svg"), bbox_inches="tight", dpi=150)
+    plt.close()
+
+    
+    # plt.tight_layout()
+    # # Uncomment to save:
     # plt.savefig(os.path.join(PLOT_DIR,
-    #     f"{task}_grid_pr{pruning_ratio}.png"), bbox_inches="tight", dpi=150)
-    plt.show()
+    #     f"{task}_grid_pr{pruning_ratio}_zoomed.png"), bbox_inches="tight", dpi=150)
+    # plt.show()
 
 
 # ── Single-plot mode ────────────────────────────────────────────────
@@ -219,7 +230,7 @@ def main(task="CIFAR10", sparsity=0.9, pruning_ratio=0.3, nmu=10000,
                  linestyle="-", linewidth=0.4, alpha=0.7, zorder=10)
         plt.fill_between(x, dense_mean - dense_std, dense_mean + dense_std,
                          color="black", alpha=0.2, zorder=0)
-
+    print("done dense")
     # Static
     mean, std = load_and_aggregate(
         lambda s: _static_path(task, s, sparsity))
@@ -229,7 +240,7 @@ def main(task="CIFAR10", sparsity=0.9, pruning_ratio=0.3, nmu=10000,
                  linestyle="-", linewidth=0.3, alpha=0.7, zorder=8)
         plt.fill_between(x, mean - std, mean + std,
                          color=COLORS["static"], alpha=0.2, zorder=2)
-
+    print("done static")
     # GMP
     mean, std = load_and_aggregate(
         lambda s: _gmp_path(task, s, sparsity, nmu))
@@ -239,7 +250,7 @@ def main(task="CIFAR10", sparsity=0.9, pruning_ratio=0.3, nmu=10000,
                  linestyle="-", linewidth=0.3, alpha=0.7, zorder=8)
         plt.fill_between(x, mean - std, mean + std,
                          color=COLORS["gmp"], alpha=0.2, zorder=2)
-
+    print("done gmp")
     # RigL / SET
     for name in ("rigl", "set"):
         mean, std = load_and_aggregate(
@@ -250,7 +261,7 @@ def main(task="CIFAR10", sparsity=0.9, pruning_ratio=0.3, nmu=10000,
                      linestyle="-", linewidth=0.3, alpha=0.7, zorder=8)
             plt.fill_between(x, mean - std, mean + std,
                              color=COLORS[name], alpha=0.2, zorder=2)
-
+    print("done rigl/set")
     plt.legend()
     plt.grid(True)
     plt.minorticks_on()
@@ -270,8 +281,9 @@ def main(task="CIFAR10", sparsity=0.9, pruning_ratio=0.3, nmu=10000,
 
 if __name__ == "__main__":
     # --- Grid for each task ---
-    for t in ("CIFAR10", "CIFAR100"):
-        main_grid(task=t, pruning_ratio=0.3)
+    for t in ("CIFAR100", ):#"CIFAR100"
+        for r in [0.1, 0.3, 0.5, 0.7, 0.9]:
+            main_grid(task=t, pruning_ratio=r)
 
     # --- Or single plot ---
     # main(task="CIFAR10", sparsity=0.9, pruning_ratio=0.3, nmu=10000)

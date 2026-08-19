@@ -19,8 +19,11 @@ DEF_SPARSITY, DEF_PRUNING_RATIO, NMU, DEF_DT, DEF_GDT = 0, 0, 0, 0, 0
 X_LIM = (0, 1000)
 Y_LIM = (0, 0.9)
 
-zx_lim = (750,1000)
-zy_lim = (0.75,0.85)
+blk_line_width = 1.5 #3 #
+color_line_width = 0.5 #1.5 #
+
+zx_lim =X_LIM #(750,1000)  #
+zy_lim =Y_LIM #(0.75,0.85) #
 
 # Clean dictionary-based nmu -> (dt, gdt) mapping
 NMU_TO_DT = {
@@ -169,7 +172,7 @@ def plot_subplot(ax, dense_mean, dense_std):
     # --- Dense baseline (mean ± std) ---
     if dense_mean is not None:
         x = np.arange(len(dense_mean))
-        ax.plot(x, dense_mean, label="Dense", color='black', linestyle='-', linewidth=3, alpha=0.7, zorder=10)
+        ax.plot(x, dense_mean, label="Dense", color='black', linestyle='-', linewidth=blk_line_width, alpha=0.7, zorder=10)
         ax.fill_between(x, dense_mean - dense_std, dense_mean + dense_std, color='black', alpha=0.2, zorder=0)
 
     # --- Sparsifiers (mean ± std) ---
@@ -179,7 +182,7 @@ def plot_subplot(ax, dense_mean, dense_std):
         mean, std = load_and_aggregate(template)
         if mean is not None:
             x = np.arange(len(mean))
-            ax.plot(x, mean, label=labels[i], color=colors[i], linestyle='-', linewidth=1.5, alpha=0.7, zorder=8)
+            ax.plot(x, mean, label=labels[i], color=colors[i], linestyle='-', linewidth=color_line_width, alpha=0.7, zorder=8)
             ax.fill_between(x, mean - std, mean + std, color=colors[i], alpha=0.2, zorder=2)
 
     ax.set_xlim(zx_lim)
@@ -193,13 +196,15 @@ def main_grid():
     """Create a single figure with a 5x7 grid of subplots.
     Rows = nmu values (5), Columns = sparsity values (7).
     """
-    sparsity_l = [0.1, 0.3, 0.5, 0.7, 0.9, 0.95, 0.99]
-    nmu_l = [10, 100, 1000, 10000, 100000]
+    # sparsity_full = [0.1, 0.3, 0.5, 0.7, 0.9, 0.95, 0.99]
+    # nmu_full = [10, 100, 1000, 10000, 100000]
+    sparsity_l = [0.1, 0.7, 0.9, 0.99]
+    nmu_l = [10, 1000, 10000, 100000]
 
     n_rows = len(nmu_l)       # 5
     n_cols = len(sparsity_l)  # 7
 
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(7 * 4, 5 * 3.5),
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(n_cols* 4, n_rows * 3.5),
                              sharex=True, sharey=True)
 
     # Preload dense baseline once (doesn't depend on sparsity/nmu)
@@ -239,8 +244,8 @@ def main_grid():
                  fontsize=14, fontweight='bold', y=1.02)
 
     plt.tight_layout()
-    plt.savefig("plotter/plots/full_grid_pr0.3_zoomed2.svg", bbox_inches='tight')
-    plt.savefig("plotter/plots/full_grid_pr0.3_zoomed2.png", bbox_inches='tight', dpi=150)
+    # plt.savefig("plotter/plots/full_grid_pr0.3_zoomed3.svg", bbox_inches='tight')
+    # plt.savefig("plotter/plots/full_grid_pr0.3_zoomed4.png", bbox_inches='tight', dpi=150)
     plt.show()
 
 
@@ -289,6 +294,6 @@ def main(zoom=False):
 
 
 if __name__ == "__main__":
-    # main_grid()
-    main()
+    main_grid()
+    # main()
 

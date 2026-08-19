@@ -66,8 +66,10 @@ def build_filename(run):
 # ── Main export loop ────────────────────────────────────────────────
 exported = 0
 skipped  = 0
-
+count=0
+print (f"Exporting CSVs for project '{project}' ({len(runs)} runs found)...\n")
 for run in runs:
+    count+=1
     task       = _cfg(run, "task")
     sparsifier = _cfg(run, "sparsifier")
 
@@ -82,11 +84,11 @@ for run in runs:
 
     if os.path.exists(outpath):
         skipped += 1
-        print(f"  ⏭  {outpath}  (already exists)")
+        print(f"  ⏭  {outpath}  (already exists)-{count}")
         continue
 
     # Pull history
-    history = run.history(samples=10_000)
+    history = run.history(samples=1_000)
 
     if "test/acc" not in history.columns:
         print(f"  ⚠  Skipping '{run.name}' — no 'test/acc' column")
@@ -97,6 +99,6 @@ for run in runs:
     df.to_csv(outpath, index=False)
 
     exported += 1
-    print(f"  ✓  {outpath}")
+    print(f"  ✓  {outpath} -{count}")
 
 print(f"\nDone — exported {exported} runs, skipped {skipped}.")
