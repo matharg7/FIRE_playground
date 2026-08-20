@@ -9,7 +9,7 @@ from glob import glob
 # ── Paths ────────────────────────────────────────────────────────────
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 CSV_ROOT   = os.path.join(BASE_DIR, "csv_export")
-PLOT_DIR   = os.path.join(BASE_DIR, "plotter", "plots", "svg")
+PLOT_DIR   = os.path.join(BASE_DIR, "plotter", "plots")
 
 os.makedirs(PLOT_DIR, exist_ok=True)
 
@@ -199,7 +199,7 @@ def main_grid(task="CIFAR100", pruning_ratio=0.3,
     plt.tight_layout()
     # Uncomment to save:
     plt.savefig(os.path.join(PLOT_DIR,
-        f"{task}_grid_pr{pruning_ratio}.svg"), bbox_inches="tight", dpi=150)
+        f"{task}_grid_pr{pruning_ratio}.png"), bbox_inches="tight", dpi=150)
     plt.close()
 
     
