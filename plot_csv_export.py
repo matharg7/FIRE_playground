@@ -33,7 +33,7 @@ LABELS = {
 BLK_LINE_WIDTH   = 1.5
 COLOR_LINE_WIDTH = 0.5
 X_LIM = (0, 1000)
-Y_LIM = (0,.9)
+Y_LIM = (0.1, 0.35)
 # Y_LIM = (0.25,.35)
 
 
