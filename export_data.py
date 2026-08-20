@@ -78,14 +78,25 @@ for run in runs:
         skipped += 1
         continue
 
+    # Only keep runs with cosine_T_max_epochs == 0
+    if _cfg(run, "cosine_T_max_epochs", None) != 0:
+        skipped += 1
+        print(f"  ⏭  {run.name}  (no cosine)-{count}")
+        continue
+
+    if _cfg(run, "model", None) == "TinyViT":
+        skipped += 1
+        print(f"  ⏭  {run.name}  (TinyViT)-{count}")
+        continue
+
     # Build path early so we can skip already-exported files
     filename = build_filename(run)
     outpath  = os.path.join(CSV_ROOT, task, sparsifier, filename)
 
-    if os.path.exists(outpath):
-        skipped += 1
-        print(f"  ⏭  {outpath}  (already exists)-{count}")
-        continue
+    # if os.path.exists(outpath):
+    #     skipped += 1
+    #     print(f"  ⏭  {outpath}  (already exists)-{count}")
+    #     continue
 
     # Pull history
     history = run.history(samples=1_000)

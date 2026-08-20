@@ -32,8 +32,8 @@ LABELS = {
 
 BLK_LINE_WIDTH   = 1.5
 COLOR_LINE_WIDTH = 0.5
-X_LIM = (700, 1000)
-Y_LIM = (0.7, 0.85)
+X_LIM = (0, 1000)
+Y_LIM = (0, 0.85)
 # Y_LIM = (0.25,.35)
 
 
@@ -199,7 +199,7 @@ def main_grid(task="CIFAR100", pruning_ratio=0.3,
     plt.tight_layout()
     # Uncomment to save:
     plt.savefig(os.path.join(PLOT_DIR,
-        f"{task}_grid_pr{pruning_ratio}_zoomed.svg"), bbox_inches="tight", dpi=150)
+        f"{task}_grid_pr{pruning_ratio}.svg"), bbox_inches="tight", dpi=150)
     plt.close()
 
     
@@ -282,8 +282,8 @@ def main(task="CIFAR10", sparsity=0.9, pruning_ratio=0.3, nmu=10000,
 if __name__ == "__main__":
     # --- Grid for each task ---
     for t in ("CIFAR10", ):#"CIFAR100"
-        # for r in [0.1, 0.3, 0.5, 0.7, 0.9]:
-            main_grid(task=t, pruning_ratio=0.3)
+        for r in [0.1, 0.3, 0.5, 0.7, 0.9]:
+            main_grid(task=t, pruning_ratio=r)
 
     # --- Or single plot ---
     # main(task="CIFAR10", sparsity=0.9, pruning_ratio=0.3, nmu=10000)
