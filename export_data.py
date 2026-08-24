@@ -9,6 +9,7 @@ project = "DST Continual Learning"
 runs = api.runs(f"{entity}/{project}")
 
 # ── Output root ─────────────────────────────────────────────────────
+# CSV_ROOT = "csv_export/itop"
 CSV_ROOT = "csv_export"
 
 # Tasks / sparsifiers we care about
@@ -73,19 +74,36 @@ for run in runs:
     task       = _cfg(run, "task")
     sparsifier = _cfg(run, "sparsifier")
 
+    if run.state == "running":
+        skipped += 1
+        print(f"  ⏭  {run.name}  (running)-{count}")
+    continue
+
     # Skip runs that don't match the tasks / sparsifiers we want
     if task not in TASKS or sparsifier not in SPARSIFIERS:
         skipped += 1
         continue
 
+    # Only keep runs with cosine_T_max_epochs == 0
+    if _cfg(run, "cosine_T_max_epochs", None) != 0:
+        skipped += 1
+        print(f"  ⏭  {run.name}  (no cosine)-{count}")
+        continue
+    
+
+    # if _cfg(run, "model", None) == "TinyViT":
+    #     skipped += 1
+    #     print(f"  ⏭  {run.name}  (TinyViT)-{count}")
+    #     continue
+
     # Build path early so we can skip already-exported files
     filename = build_filename(run)
     outpath  = os.path.join(CSV_ROOT, task, sparsifier, filename)
 
-    if os.path.exists(outpath):
-        skipped += 1
-        print(f"  ⏭  {outpath}  (already exists)-{count}")
-        continue
+    # if os.path.exists(outpath):
+    #     skipped += 1
+    #     print(f"  ⏭  {outpath}  (already exists)-{count}")
+    #     continue
 
     # Pull history
     history = run.history(samples=1_000)
@@ -94,8 +112,8 @@ for run in runs:
         print(f"  ⚠  Skipping '{run.name}' — no 'test/acc' column")
         skipped += 1
         continue
-
     df = pd.DataFrame({"accuracy": history["test/acc"]})
+    # df = pd.DataFrame({"accuracy": history["dst/itop_rate"]})
     df.to_csv(outpath, index=False)
 
     exported += 1

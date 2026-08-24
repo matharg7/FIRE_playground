@@ -7,7 +7,7 @@ import os
 # ── Paths ────────────────────────────────────────────────────────────
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 CSV_ROOT   = os.path.join(BASE_DIR, "csv_export")
-PLOT_DIR   = os.path.join(BASE_DIR, "plotter", "new_plots", "svg")
+PLOT_DIR   = os.path.join(BASE_DIR, "plotter", "plots", "svg")
 
 os.makedirs(PLOT_DIR, exist_ok=True)
 
@@ -98,18 +98,18 @@ def load_and_aggregate(path_fn):
     return np.mean(stacked, axis=0), np.std(stacked, axis=0)
 
 
-def _plot_series(ax, mean, std, label, color, linewidth=COLOR_LINE_WIDTH,
-            zorder=4):
-    """Draw a legible mean curve and a restrained across-seed band."""
-    x = np.arange(len(mean))
-    mean = pd.Series(mean).rolling(DISPLAY_SMOOTHING, center=True,
-                    min_periods=1).mean().to_numpy()
-    std = pd.Series(std).rolling(DISPLAY_SMOOTHING, center=True,
-                    min_periods=1).mean().to_numpy()
-    ax.fill_between(x, mean - std, mean + std, color=color, alpha=0.14,
-            linewidth=0, zorder=zorder - 2)
-    ax.plot(x, mean, label=label, color=color, linewidth=linewidth,
-        solid_capstyle="round", zorder=zorder)
+    def _plot_series(ax, mean, std, label, color, linewidth=COLOR_LINE_WIDTH,
+             zorder=4):
+        """Draw a legible mean curve and a restrained across-seed band."""
+        x = np.arange(len(mean))
+        mean = pd.Series(mean).rolling(DISPLAY_SMOOTHING, center=True,
+                       min_periods=1).mean().to_numpy()
+        std = pd.Series(std).rolling(DISPLAY_SMOOTHING, center=True,
+                     min_periods=1).mean().to_numpy()
+        ax.fill_between(x, mean - std, mean + std, color=color, alpha=0.14,
+                linewidth=0, zorder=zorder - 2)
+        ax.plot(x, mean, label=label, color=color, linewidth=linewidth,
+            solid_capstyle="round", zorder=zorder)
 
 
 # ── Subplot renderer ────────────────────────────────────────────────

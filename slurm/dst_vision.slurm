@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=DST_VISION_SWEEP_AGENT
-#SBATCH --account=rrg-yani
+#SBATCH --account=def-yani
 #SBATCH --nodes=1
 #SBATCH --gpus=h100_10gb:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=20G
-#SBATCH --time=11:30:00
+#SBATCH --time=15:30:00
 # Set the array range to the number of agents you want to run in parallel,
 # e.g. `#SBATCH --array=0-8` to launch 9 agents against the same sweep.
-#SBATCH --array=0-17
+#SBATCH --array=0-35
 #SBATCH -o ../slurm_logs/dst_vision_agent_%A_%a.out
-#SBATCH -e ../slurm_logs/dst_vision_agent_%A_%a.err
-#SBATCH --mail-user=fredella.pang@ucalgary.ca
+#SBATCH -e ../slurm_logs/dst_vision_agent_%A_%s
 #SBATCH --mail-type=ALL
 #
 # Generic W&B sweep-agent launcher for the DST vision fine-tuning recipe.

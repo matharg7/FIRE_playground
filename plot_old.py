@@ -3,11 +3,13 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import re
+from glob import glob
 
 # ── Paths ────────────────────────────────────────────────────────────
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 CSV_ROOT   = os.path.join(BASE_DIR, "csv_export")
-PLOT_DIR   = os.path.join(BASE_DIR, "plotter", "new_plots", "svg")
+PLOT_DIR   = os.path.join(BASE_DIR, "plotter", "plots", "wiml")
 
 os.makedirs(PLOT_DIR, exist_ok=True)
 
@@ -16,10 +18,10 @@ SEEDS = [0, 5, 8]
 
 # ── Plot styling ────────────────────────────────────────────────────
 COLORS = {
-    "rigl":   "#D55E00",  # vermilion
-    "set":    "#CC79A7",  # reddish purple
-    "gmp":    "#009E73",  # bluish green
-    "static": "#0072B2",  # blue
+    "rigl":   "red",
+    "set":    "purple",
+    "gmp":    "green",
+    "static": "blue",
 }
 LABELS = {
     "rigl":   "RigL",
@@ -28,25 +30,16 @@ LABELS = {
     "static": "Static",
 }
 
-BLK_LINE_WIDTH   = 1.8
-COLOR_LINE_WIDTH = 1.25
-DISPLAY_SMOOTHING = 9
-X_LIM = (0, 1000)
-Y_LIM = (0.1, 0.35)
-# Y_LIM = (0.25,.35)
-
-plt.rcParams.update({
-    "font.family": "DejaVu Sans",
-    "font.size": 8,
-    "axes.titlesize": 9,
-    "axes.labelsize": 8,
-    "axes.linewidth": 0.7,
-    "xtick.labelsize": 7,
-    "ytick.labelsize": 7,
-    "legend.fontsize": 8,
-    "svg.fonttype": "none",
-    "pdf.fonttype": 42,
-})
+BLK_LINE_WIDTH   = 3
+COLOR_LINE_WIDTH = 3
+# BLK_LINE_WIDTH   = .5
+# COLOR_LINE_WIDTH = .25
+# X_LIM = (700, 1000) #zoom
+X_LIM = (0, 1000) #reg
+Y_LIM = (0, 0.85) #reg cifar10
+# Y_LIM = (0, 0.33) #reg cifar100
+# Y_LIM = (0.78,0.83) #zoom cifar10
+# Y_LIM = (0,0.35) #zoom cifar100
 
 
 # ── File-path builders (match export_data.py naming) ────────────────
@@ -98,54 +91,54 @@ def load_and_aggregate(path_fn):
     return np.mean(stacked, axis=0), np.std(stacked, axis=0)
 
 
-def _plot_series(ax, mean, std, label, color, linewidth=COLOR_LINE_WIDTH,
-            zorder=4):
-    """Draw a legible mean curve and a restrained across-seed band."""
-    x = np.arange(len(mean))
-    mean = pd.Series(mean).rolling(DISPLAY_SMOOTHING, center=True,
-                    min_periods=1).mean().to_numpy()
-    std = pd.Series(std).rolling(DISPLAY_SMOOTHING, center=True,
-                    min_periods=1).mean().to_numpy()
-    ax.fill_between(x, mean - std, mean + std, color=color, alpha=0.14,
-            linewidth=0, zorder=zorder - 2)
-    ax.plot(x, mean, label=label, color=color, linewidth=linewidth,
-        solid_capstyle="round", zorder=zorder)
-
-
 # ── Subplot renderer ────────────────────────────────────────────────
 def plot_subplot(ax, task, sparsity, nmu, pruning_ratio, dense_mean, dense_std):
     """Plot dense baseline + all sparsifiers on one axis."""
 
     # Dense baseline
     if dense_mean is not None:
-        _plot_series(ax, dense_mean, dense_std, "Dense", "#222222",
-                 linewidth=BLK_LINE_WIDTH, zorder=10)
+        x = np.arange(len(dense_mean))
+        ax.plot(x, dense_mean, label="Dense", color="black",
+                linestyle="-", linewidth=BLK_LINE_WIDTH, alpha=0.7, zorder=10)
+        ax.fill_between(x, dense_mean - dense_std, dense_mean + dense_std,
+                        color="black", alpha=0.2, zorder=0)
 
     # Static (only varies by sparsity, not nmu)
     mean, std = load_and_aggregate(
         lambda s: _static_path(task, s, sparsity))
     if mean is not None:
-        _plot_series(ax, mean, std, LABELS["static"], COLORS["static"])
+        x = np.arange(len(mean))
+        ax.plot(x, mean, label=LABELS["static"], color=COLORS["static"],
+                linestyle="-", linewidth=COLOR_LINE_WIDTH, alpha=0.7, zorder=8)
+        ax.fill_between(x, mean - std, mean + std,
+                        color=COLORS["static"], alpha=0.2, zorder=2)
 
     # GMP (varies by sparsity + nmu)
     mean, std = load_and_aggregate(
         lambda s: _gmp_path(task, s, sparsity, nmu))
     if mean is not None:
-        _plot_series(ax, mean, std, LABELS["gmp"], COLORS["gmp"])
+        x = np.arange(len(mean))
+        ax.plot(x, mean, label=LABELS["gmp"], color=COLORS["gmp"],
+                linestyle="-", linewidth=COLOR_LINE_WIDTH, alpha=0.7, zorder=8)
+        ax.fill_between(x, mean - std, mean + std,
+                        color=COLORS["gmp"], alpha=0.2, zorder=2)
 
     # RigL / SET (vary by sparsity + pruning_ratio + nmu)
     for name in ("rigl", "set"):
         mean, std = load_and_aggregate(
             lambda s, _n=name: _dst_path(task, _n, s, sparsity, pruning_ratio, nmu))
         if mean is not None:
-            _plot_series(ax, mean, std, LABELS[name], COLORS[name])
+            x = np.arange(len(mean))
+            ax.plot(x, mean, label=LABELS[name], color=COLORS[name],
+                    linestyle="-", linewidth=COLOR_LINE_WIDTH, alpha=0.7, zorder=8)
+            ax.fill_between(x, mean - std, mean + std,
+                            color=COLORS[name], alpha=0.2, zorder=2)
 
     ax.set_xlim(X_LIM)
     ax.set_ylim(Y_LIM)
-    ax.grid(which="major", color="#7f8790", alpha=0.28, linewidth=0.45)
-    ax.grid(which="minor", color="#aeb4ba", alpha=0.18, linewidth=0.3)
-    ax.minorticks_on()
-    ax.set_axisbelow(True)
+    ax.grid(which="major", color="#666666", linestyle="-", linewidth=0.4)
+    ax.grid(which="minor", color="#999999", linestyle=":", linewidth=0.3)
+    # ax.minorticks_on()
 
 
 # ── Grid plot (NMU rows × Sparsity cols) ────────────────────────────
@@ -164,7 +157,7 @@ def main_grid(task="CIFAR100", pruning_ratio=0.3,
     n_cols = len(sparsity_list)
 
     fig, axes = plt.subplots(n_rows, n_cols,
-                             figsize=(n_cols * 2.35, n_rows * 1.95),
+                             figsize=(n_cols * 4, n_rows * 3.5),
                              sharex=True, sharey=True)
 
     # Ensure axes is 2D even for 1-row or 1-col grids
@@ -186,37 +179,38 @@ def main_grid(task="CIFAR100", pruning_ratio=0.3,
                          dense_mean, dense_std)
 
             if row == 0:
-                ax.set_title(f"Sparsity = {sp_val:g}", fontweight="bold",
-                             pad=5)
+                ax.set_title(f"Sparsity: {sp_val}",
+                             fontsize=10, fontweight="bold")
             if col == 0:
-                ax.annotate(f"NMU = {nmu_val:g}", xy=(0, 0.5),
-                            xytext=(-34, 0), xycoords="axes fraction",
-                            textcoords="offset points", ha="right",
-                            va="center", rotation=90, fontsize=7)
+                ax.set_ylabel(f"NMU: {nmu_val}\nTest Accuracy",
+                              fontsize=9)
+            if row == n_rows - 1:
+                ax.set_xlabel("Epochs", fontsize=9)
 
-    fig.supxlabel("Training steps", fontsize=9, y=0.015)
-    fig.supylabel("Test accuracy", fontsize=9, x=0.012)
-
-    # Use a single compact legend for the entire figure.
+    # Shared legend from first subplot
     handles, leg_labels = axes[0, 0].get_legend_handles_labels()
     if handles:
         fig.legend(handles, leg_labels, loc="upper center",
-                   ncol=len(leg_labels), frameon=False,
-                   bbox_to_anchor=(0.5, 0.985), handlelength=2.2,
-                   columnspacing=1.2)
+                   ncol=len(leg_labels), fontsize=10, frameon=True,
+                   bbox_to_anchor=(0.5, 1.0))
 
     fig.suptitle(
-        f"{task}  |  Pruning Ratio: {pruning_ratio}  |  "
-        f"Rows: NMU  |  Columns: Sparsity",
-        fontsize=12, fontweight="bold", y=0.995,
+        f"Test Accuracy vs. Epochs for {task}",
+        # f"Rows: NMU  |  Columns: Sparsity",
+        fontsize=25, fontweight="bold", y=1.02,
     )
 
-    fig.tight_layout(rect=(0.045, 0.045, 0.995, 0.94), w_pad=0.8,
-                     h_pad=0.8)
-    output_stem = os.path.join(PLOT_DIR,
-                               f"{task}_grid_pr{pruning_ratio}")
-    fig.savefig(f"{output_stem}.svg", bbox_inches="tight")
-    fig.savefig(f"{output_stem}.pdf", bbox_inches="tight")
+
+    plt.tight_layout()
+    # Uncomment to save:
+    # plt.savefig(os.path.join(PLOT_DIR,
+    #     f"{task}_grid_pr{pruning_ratio}_zoomed.svg"), bbox_inches="tight", dpi=150)
+    # plt.savefig(os.path.join(PLOT_DIR,
+    #     f"{task}_grid_pr{pruning_ratio}_zoomed.png"), bbox_inches="tight", dpi=150)
+    plt.savefig(os.path.join(PLOT_DIR,
+        f"{task}_grid_zoomed.svg"), bbox_inches="tight", dpi=150)
+    plt.savefig(os.path.join(PLOT_DIR,
+        f"{task}_grid_zoomed.png"), bbox_inches="tight", dpi=150)
     plt.close()
 
     
@@ -236,52 +230,77 @@ def main(task="CIFAR10", sparsity=0.9, pruning_ratio=0.3, nmu=10000,
     else:
         xlim, ylim, zoom_text = X_LIM, Y_LIM, ""
 
-    fig, ax = plt.subplots(figsize=(7.2, 4.2), constrained_layout=True)
+    plt.figure(figsize=(20, 8))
 
     # Dense baseline
     dense_mean, dense_std = load_and_aggregate(
         lambda s: _dense_path(task, s))
     if dense_mean is not None:
-        _plot_series(ax, dense_mean, dense_std, "Dense", "#222222",
-                     linewidth=BLK_LINE_WIDTH, zorder=10)
+        x = np.arange(len(dense_mean))
+        plt.plot(x, dense_mean, label="Dense", color="black",
+                 linestyle="-", linewidth=4, alpha=0.7, zorder=10)
+        plt.fill_between(x, dense_mean - dense_std, dense_mean + dense_std,
+                         color="black", alpha=0.2, zorder=0)
+    print("done dense")
     # Static
     mean, std = load_and_aggregate(
         lambda s: _static_path(task, s, sparsity))
     if mean is not None:
-        _plot_series(ax, mean, std, LABELS["static"], COLORS["static"])
+        x = np.arange(len(mean))
+        plt.plot(x, mean, label=LABELS["static"], color=COLORS["static"],
+                 linestyle="-", linewidth=3, alpha=0.7, zorder=8)
+        plt.fill_between(x, mean - std, mean + std,
+                         color=COLORS["static"], alpha=0.2, zorder=2)
+    print("done static")
     # GMP
     mean, std = load_and_aggregate(
         lambda s: _gmp_path(task, s, sparsity, nmu))
     if mean is not None:
-        _plot_series(ax, mean, std, LABELS["gmp"], COLORS["gmp"])
+        x = np.arange(len(mean))
+        plt.plot(x, mean, label=LABELS["gmp"], color=COLORS["gmp"],
+                 linestyle="-", linewidth=3, alpha=0.7, zorder=8)
+        plt.fill_between(x, mean - std, mean + std,
+                         color=COLORS["gmp"], alpha=0.2, zorder=2)
+    print("done gmp")
     # RigL / SET
     for name in ("rigl", "set"):
         mean, std = load_and_aggregate(
             lambda s, _n=name: _dst_path(task, _n, s, sparsity, pruning_ratio, nmu))
         if mean is not None:
-            _plot_series(ax, mean, std, LABELS[name], COLORS[name])
-    ax.legend(frameon=False, ncol=5, loc="lower right")
-    ax.set_xlim(xlim)
-    ax.set_ylim(ylim)
-    ax.grid(which="major", color="#7f8790", alpha=0.28, linewidth=0.5)
-    ax.grid(which="minor", color="#aeb4ba", alpha=0.18, linewidth=0.3)
-    ax.minorticks_on()
-    ax.set_axisbelow(True)
-    ax.set_xlabel("Training steps")
-    ax.set_ylabel("Test accuracy")
-    ax.set_title(f"{task}  |  Sparsity = {sparsity:g}  "
-              f"Pruning Ratio: {pruning_ratio}  NMU: {nmu}")
+            x = np.arange(len(mean))
+            plt.plot(x, mean, label=LABELS[name], color=COLORS[name],
+                     linestyle="-", linewidth=3, alpha=0.7, zorder=8)
+            plt.fill_between(x, mean - std, mean + std,
+                             color=COLORS[name], alpha=0.2, zorder=2)
+    print("done rigl/set")
+    plt.legend(ncol=5, fontsize=12, frameon=True, loc="upper center")
+    plt.grid(True)
+    # plt.minorticks_on()
+    plt.xlim(xlim)
+    plt.ylim(ylim)
+    plt.grid(which="major", color="#666666", linestyle="-", linewidth=0.8)
+    plt.grid(which="minor", color="#999999", linestyle=":", linewidth=0.5)
+    plt.xlabel("Epochs")
+    plt.ylabel("Test Accuracy")
+    plt.title(f"{task}  |  Sparsity: {sparsity}  "
+              f"Pruning Ratio: {pruning_ratio}  NMU: {nmu}", fontsize=20, fontweight="bold")
+              
     # Uncomment to save:
-    # plt.savefig(os.path.join(PLOT_DIR,
-    #     f"{task}_s{sparsity}_pr{pruning_ratio}_nmu{nmu}{zoom_text}.png"))
+    plt.savefig(os.path.join(PLOT_DIR,
+        f"{task}_s{sparsity}_pr{pruning_ratio}_nmu{nmu}{zoom_text}.png"))
     plt.show()
 
 
 if __name__ == "__main__":
     # --- Grid for each task ---
-    for t in ("CIFAR100", ):#"CIFAR100"
-        for r in [0.1, 0.3, 0.5, 0.7, 0.9]:
-            main_grid(task=t, pruning_ratio=r)
+    sparsity_list = [0.1, 0.7, 0.95]
+    nmu_list = [10, 1000, 10000]
+    pruning_ratio = [0.5]
+    # pruning_ratio = [0.1, 0.3, 0.5, 0.7, 0.9]
+    # for t in ("CIFAR100", ):#"CIFAR100"
+    #     for r in pruning_ratio:
+    #         main_grid(task=t, pruning_ratio=r, sparsity_list=sparsity_list, nmu_list=nmu_list)
 
     # --- Or single plot ---
-    # main(task="CIFAR10", sparsity=0.9, pruning_ratio=0.3, nmu=10000)
+    # main(task="CIFAR100", sparsity=0.5, pruning_ratio=0.9, nmu=1000)
+    main(task="CIFAR10", sparsity=0.3, pruning_ratio=0.1, nmu=1000)
