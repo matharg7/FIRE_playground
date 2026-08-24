@@ -17,10 +17,10 @@ parameters:
     value: RESNET18
   benchmark:
     value: continual
-  sparsifier:
-    value: gmp
 
   # Swept axes.
+  sparsifier:
+    values: [rigl, set]
   sparsity:
     values: [0.1, 0.3, 0.5, 0.70, 0.90, 0.95, 0.99]
   pruning_ratio:
@@ -36,6 +36,3 @@ command:
   - ${args}
   - "--log-subdir"
   - "DST_cifar10_resnet18_continual_sweep"
-
-
-  
