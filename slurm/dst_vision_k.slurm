@@ -14,6 +14,7 @@
 #SBATCH --mail-user=fredella.pang@ucalgary.ca
 #SBATCH --mail-type=ALL
 #
+# NOTE: THIS IS A SLURM SWEEP AGENT TEMPLATE FOR KILLARNEY & VULCAN. use dst_vision.slurm for H100 MiG on Nibi and Fir.
 # Generic W&B sweep-agent launcher for the DST vision fine-tuning recipe.
 #
 # Each array task starts one `wandb agent` that pulls a hyperparameter set 14+27+56+20=177

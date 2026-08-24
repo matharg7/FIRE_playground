@@ -11,7 +11,7 @@
 #SBATCH --mail-user=fredella.pang@ucalgary.ca
 #SBATCH --mail-type=ALL
 #
-# Generic W&B sweep-agent launcher for the DST vision fine-tuning recipe.
+# W&B sweep-agent launcher for the single jobs -- not arrays.
 #
 # A single job starts one `wandb agent` that pulls 3 hyperparameter sets
 # consecutively from the sweep server and runs bash_scripts/run_dst_vision.sh

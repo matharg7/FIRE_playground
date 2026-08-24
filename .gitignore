@@ -5,6 +5,7 @@ slurm_logs/
 logs/
 csv_export/
 csv/
+plots/garbage/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
