@@ -7,7 +7,7 @@ import os
 # ── Paths ────────────────────────────────────────────────────────────
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 CSV_ROOT   = os.path.join(BASE_DIR, "csv_export")
-PLOT_DIR   = os.path.join(BASE_DIR, "plotter", "new_plots", "svg")
+PLOT_DIR   = os.path.join(BASE_DIR, "plotter", "plots")
 
 os.makedirs(PLOT_DIR, exist_ok=True)
 
@@ -32,7 +32,7 @@ BLK_LINE_WIDTH   = 1.8
 COLOR_LINE_WIDTH = 1.25
 DISPLAY_SMOOTHING = 9
 X_LIM = (0, 1000)
-Y_LIM = (0.1, 0.35)
+Y_LIM = (0, 0.85)
 # Y_LIM = (0.25,.35)
 
 plt.rcParams.update({
@@ -211,12 +211,11 @@ def main_grid(task="CIFAR100", pruning_ratio=0.3,
         fontsize=12, fontweight="bold", y=0.995,
     )
 
-    fig.tight_layout(rect=(0.045, 0.045, 0.995, 0.94), w_pad=0.8,
-                     h_pad=0.8)
-    output_stem = os.path.join(PLOT_DIR,
-                               f"{task}_grid_pr{pruning_ratio}")
-    fig.savefig(f"{output_stem}.svg", bbox_inches="tight")
-    fig.savefig(f"{output_stem}.pdf", bbox_inches="tight")
+
+    plt.tight_layout()
+    # Uncomment to save:
+    plt.savefig(os.path.join(PLOT_DIR,
+        f"{task}_grid_pr{pruning_ratio}.png"), bbox_inches="tight", dpi=150)
     plt.close()
 
     
@@ -279,7 +278,7 @@ def main(task="CIFAR10", sparsity=0.9, pruning_ratio=0.3, nmu=10000,
 
 if __name__ == "__main__":
     # --- Grid for each task ---
-    for t in ("CIFAR100", ):#"CIFAR100"
+    for t in ("CIFAR10", ):#"CIFAR100"
         for r in [0.1, 0.3, 0.5, 0.7, 0.9]:
             main_grid(task=t, pruning_ratio=r)
 

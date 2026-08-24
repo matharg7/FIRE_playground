@@ -57,7 +57,7 @@ def get_task(cfg):
         mode=s['mode'],
         n_chunks=s['n_chunks'],
         make_test_loader=True,
-        access='full',
+        access='limited', #'full',
         test_access='same',
         seed=cfg.seed,
         warm_start_subset_ratio=cfg.warm_start_subset_ratio,
