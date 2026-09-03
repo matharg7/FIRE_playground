@@ -31,13 +31,14 @@ CONFIG = {
     # ---- Benchmark ----
     'benchmark': 'continual',    # warm_start | continual | class_incremental
     'warm_start_subset_ratio': 10,
+    'access': 'full',            # full | limited
 
     # ---- Misc ----
     'log_every': 1,
     'seed': 5,
     'batch_size': 256,
     'disable_wandb': False,
-    'wandb_project': "tester",          # override wandb project name (empty = auto)4631652
+    'wandb_project': 'DST Continual Learning',          # override wandb project name (empty = auto)4631652
 
     # ---- Sparsifier ----
     # Which algorithm to use.  'dense' runs without any sparsifier (baseline).
@@ -56,6 +57,15 @@ CONFIG = {
     'initial_sparsity': 0.0,     # sparsity at step 0 (dense start)
 
     # ---- LR Scheduler ----
+    # ---- Checkpoint / resume ----
+    # A class_incremental+full run is ~206k optimizer steps and cannot finish inside
+    # the 6h gpu-partition wall, so it must be resumable. 
+    'ckpt_path': '',             # '' disables checkpointing entirely (old behaviour)
+    'resume': False,             # if True and ckpt_path exists, continue from it
+    'ckpt_every_epochs': 25,     # legacy knob; the primary trigger is the timer below
+    'ckpt_min_interval_sec': 900,  # save at most every 15 min 
+    'wandb_run_id': '',          # '' = derive deterministically from the run name
+
     'use_cosine_lr': True,        # True → CosineAnnealingLR; False → warmup+target_lr
     'cosine_T_max_epochs': 0,      # T_max for CosineAnnealingLR (0 = use real_epochs per chunk)
     'cosine_eta_min': 0.0,         # eta_min for CosineAnnealingLR

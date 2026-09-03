@@ -84,22 +84,38 @@ class Task(ABC):
 
         dataset = self._train_datasets[self.level]
 
+        self._eval_loaders = {}      # release previous stage's persistent workers
+        
         return DataLoader(IndexedDataset(dataset), batch_size=batch_size, shuffle=True)
 
     def get_indexed_test_loader(self):
         return DataLoader(IndexedDataset(self._test_datasets[self.level]), batch_size=64, shuffle=False)
 
+    def _eval_loader(self, key, dataset):
+        """Cached eval DataLoader. test() is called every epoch (~1000x per run),
+        so building a new loader each time would respawn workers every epoch.
+        Cache is cleared in set_level() when the stage changes."""
+        if not hasattr(self, '_eval_loaders'):
+            self._eval_loaders = {}
+        if key not in self._eval_loaders:
+            self._eval_loaders[key] = DataLoader(
+                dataset, batch_size=512, shuffle=False,
+                num_workers=2, pin_memory=True, persistent_workers=True)
+        return self._eval_loaders[key]
+    
     def test(self, model: nn.Module, device: str, full=False, train=False, log_features=False, log_input_grad=False):
         model.eval()
         info = {}
         if full and train:
             raise ValueError("full and train cannot be True at the same time")
         if full:
-            test_loader = DataLoader(self._test_dataset, batch_size=64, shuffle=False)
+            test_loader = self._eval_loader(('full',), self._test_dataset)
         elif train:
-            test_loader = DataLoader(self._train_datasets[self.level], batch_size=64, shuffle=False)
+            test_loader = self._eval_loader(('train', self.level),
+                                            self._train_datasets[self.level])
         else:
-            test_loader = DataLoader(self._test_datasets[self.level], batch_size=64, shuffle=False)
+            test_loader = self._eval_loader(('test', self.level),
+                                            self._test_datasets[self.level])
 
         if log_features:
             model.enable_hooks()
@@ -111,31 +127,30 @@ class Task(ABC):
 
         correct = 0
         total = 0
-        for (images, labels) in test_loader:
-            images, labels = images.to(device), labels.to(device)
+        grad_enabled = log_input_grad
 
-            if log_input_grad:
-                images.requires_grad_()
+        with torch.set_grad_enabled(grad_enabled):
+            for (images, labels) in test_loader:
+                images, labels = images.to(device), labels.to(device)
 
-            # forward
-            outputs = model(images)
+                if log_input_grad:
+                    images.requires_grad_()
 
-            if log_input_grad:
-                ce_loss = F.cross_entropy(outputs, labels)
-                ce_loss.backward()
-                total_input_grads += images.grad.flatten(start_dim=1).norm(dim=1).detach().cpu().numpy().tolist()
+                outputs = model(images)
 
+                if log_input_grad:
+                    ce_loss = F.cross_entropy(outputs, labels)
+                    ce_loss.backward()
+                    total_input_grads += images.grad.flatten(start_dim=1).norm(dim=1).detach().cpu().numpy().tolist()
 
-            # log feature covariance and activation pattern
-            if log_features and num < sample_num:
-                acts = model.get_activations()
-                total_features.append(acts["backbone_output"].flatten(start_dim=1).detach().cpu())
-                num += labels.size(0)
+                if log_features and num < sample_num:
+                    acts = model.get_activations()
+                    total_features.append(acts["backbone_output"].flatten(start_dim=1).detach().cpu())
+                    num += labels.size(0)
 
-            # calculate accuracy
-            _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
 
         if log_features:
             model.disable_hooks()

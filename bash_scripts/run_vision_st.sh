@@ -30,6 +30,7 @@ BENCHMARK="continual"
 LOG_SUBDIR="Cosine"
 GPU="0"
 SEEDS=""
+ACCESS="full"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -57,6 +58,8 @@ while [[ $# -gt 0 ]]; do
                                  LOG_SUBDIR="${1#*=}"; shift ;;
         --gpu)                   GPU="${2:?--gpu needs an argument}"; shift 2 ;;
         --gpu=*)                 GPU="${1#*=}"; shift ;;
+        --access)                ACCESS="${2:?--access needs an argument}"; shift 2 ;;
+        --access=*)              ACCESS="${1#*=}"; shift ;;
         --seed)                  SEEDS="${2:?--seed needs an argument}"; shift 2 ;;
         --seed=*)                SEEDS="${1#*=}"; shift ;;
         -h|--help)               sed -n '4,15p' "${BASH_SOURCE[0]}"; exit 0 ;;
@@ -83,7 +86,7 @@ export PYTHONNOUSERSITE=1
 if [[ -f "$HOME/.wandb_token" ]]; then
     export WANDB_API_KEY="$(cat "$HOME/.wandb_token")"
 fi
-export CUDA_VISIBLE_DEVICES="$GPU"
+# export CUDA_VISIBLE_DEVICES="$GPU"
 
 # Run-name base for log files (the W&B run name is built inside train_st.py).
 case "$SPARSIFIER" in
@@ -108,11 +111,9 @@ IFS=',' read -ra SEED_ARRAY <<< "$SEEDS"
 cd "$REPO_ROOT/vision"
 
 for SEED in "${SEED_ARRAY[@]}"; do
-    if [[ ${#SEED_ARRAY[@]} -gt 1 ]]; then
-        run_name="${run_base}_seed${SEED}"
-    else
-        run_name="${run_base}"
-    fi
+    
+    run_name="${run_base}_seed${SEED}"
+
     LOG_FILE="${LOGDIR}/${run_name}.out"
 
     echo "Sparsifier : $SPARSIFIER"
@@ -122,20 +123,19 @@ for SEED in "${SEED_ARRAY[@]}"; do
     echo "Log file   : $LOG_FILE"
     echo
 
-    docker run --gpus all --network=host --ipc=host --rm \
-        -e WANDB_API_KEY=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 \
-        -v "$(pwd)":/workspace -w /workspace \
-        fire-pytorch \
-        python train_st.py \
-            --benchmark "$BENCHMARK" \
-            --model "$MODEL" \
-            --task "$TASK" \
-            --sparsifier "$SPARSIFIER" \
-            --sparsity "$SPARSITY" \
-            --pruning-ratio "$PRUNING_RATIO" \
-            --num-mask-updates "$NUM_MASK_UPDATES" \
-            --seed "$SEED" \
-            > "$LOG_FILE" 2>&1
+    source "$HOME/venvs/fire/bin/activate"
+
+    python -u train_st.py \
+        --benchmark "$BENCHMARK" \
+        --access "$ACCESS" \
+        --model "$MODEL" \
+        --task "$TASK" \
+        --sparsifier "$SPARSIFIER" \
+        --sparsity "$SPARSITY" \
+        --pruning-ratio "$PRUNING_RATIO" \
+        --num-mask-updates "$NUM_MASK_UPDATES" \
+        --seed "$SEED" \
+        > "$LOG_FILE" 2>&1
 done
 
 

@@ -1,6 +1,8 @@
 import gc
+import hashlib
 import math
 import sys
+import time
 import os
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -58,7 +60,7 @@ def get_task(cfg):
         mode=s['mode'],
         n_chunks=s['n_chunks'],
         make_test_loader=True,
-        access='full',
+        access=cfg.access,
         test_access='same',
         seed=cfg.seed,
         warm_start_subset_ratio=cfg.warm_start_subset_ratio,
@@ -187,7 +189,7 @@ def build_sparsifier(cfg, model, optimizer, total_steps):
 # ---------------------------------------------------------------------------
 
 def build_run_name(cfg, sparsifier) -> str:
-    base = f"{cfg.model}_{cfg.task}"
+    base = f"{cfg.model}_{cfg.task}_{cfg.access}"
     if cfg.sparsifier == 'dense':
         return f"{base}_dense"
     # delta_t is stored on the scheduler for all non-static methods
@@ -209,6 +211,92 @@ def build_run_name(cfg, sparsifier) -> str:
     if cfg.sparsifier == 'static':
         return f"{base}_static_sparsity_{cfg.sparsity}"
     return f"{base}_{cfg.sparsifier}"
+
+
+# ---------------------------------------------------------------------------
+# Checkpointing  (added for the class-incremental campaign)
+#
+# WHY: class_incremental + access=full is ~206,100 optimizer steps per run, and the
+# gpu partition caps a job at 6h (scontrol show partition -> MaxTime=06:00:00). A run
+# therefore spans several jobs and must be resumable.
+#
+# WHAT IS SAVED, and why exactly these things:
+#   model.state_dict()  - weights AND the 74 sparsimony mask buffers. The masks live
+#                         under ...parametrizations.weight.0.mask, so saving the model
+#                         state dict saves the sparse topology. Verified 2026-09-03:
+#                         all 74 masks and the logits come back bit-identical.
+#   optimizer.state_dict() - Adam moments. The optimizer is rebuilt every stage, so
+#                         this belongs to the stage being resumed into.
+#   scheduler.state_dict() - otherwise a mid-stage resume restarts the cosine LR.
+#   sparsifier._step_count - the sparsifier's own clock; drives delta_t / t_end.
+#   RNG states           - so data order after a resume matches an uninterrupted run.
+#
+# WHAT MUST NOT BE SAVED:
+#   the sparsifier object / its state_dict() -> holds references to parametrized
+#     modules; raises "Serialization of parametrized modules is only supported
+#     through state_dict()".
+#   sparsifier._global_step -> it is a METHOD, not an int.
+#
+# Training maths is untouched: same data, same order, same optimizer, same schedule.
+# ---------------------------------------------------------------------------
+
+def _rng_state():
+    return {
+        'torch': torch.get_rng_state(),
+        'numpy': np.random.get_state(),
+        'cuda': torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+    }
+
+
+def _restore_rng(d):
+    if d is None:
+        return
+    if d.get('torch') is not None:
+        torch.set_rng_state(d['torch'].cpu() if hasattr(d['torch'], 'cpu') else d['torch'])
+    if d.get('numpy') is not None:
+        np.random.set_state(d['numpy'])
+    if d.get('cuda') is not None and torch.cuda.is_available():
+        try:
+            torch.cuda.set_rng_state_all([t.cpu() if hasattr(t, 'cpu') else t for t in d['cuda']])
+        except Exception as e:              # different GPU count on the new node
+            print(f"[ckpt] could not restore cuda RNG ({e}); continuing")
+
+
+def save_checkpoint(path, *, model, optimizer, scheduler, sparsifier,
+                    i_iter, epoch, real_epochs, global_epoch, global_step,
+                    wandb_run_id):
+    """Atomic: write to <path>.tmp then rename, so a kill mid-write cannot corrupt."""
+    if not path:
+        return
+    ckpt = {
+        'format': 1,
+        'model': model.state_dict(),
+        'opt': optimizer.state_dict(),
+        'sched': scheduler.state_dict() if scheduler is not None else None,
+        'sp_step_count': int(sparsifier._step_count) if sparsifier is not None else None,
+        'i_iter': int(i_iter),
+        'epoch': int(epoch),
+        'real_epochs': int(real_epochs),
+        'global_epoch': int(global_epoch),
+        'global_step': int(global_step),
+        'rng': _rng_state(),
+        'wandb_run_id': wandb_run_id,
+    }
+    d = os.path.dirname(os.path.abspath(path))
+    if d:
+        os.makedirs(d, exist_ok=True)
+    tmp = path + '.tmp'
+    torch.save(ckpt, tmp)
+    os.replace(tmp, path)
+
+
+def load_checkpoint(path, device):
+    if not path or not os.path.exists(path):
+        return None
+    ck = torch.load(path, map_location=device, weights_only=False)
+    if ck.get('format') != 1:
+        raise ValueError(f"unrecognised checkpoint format in {path}")
+    return ck
 
 
 # ---------------------------------------------------------------------------
@@ -244,18 +332,50 @@ def main(cfg):
     warmup_rate = 0.1
 
     wandb_project = cfg.wandb_project or f"{cfg.benchmark}_{cfg.task}_{cfg.model}"
+    _run_name = build_run_name(cfg, sparsifier)
+    # Deterministic id so a resumed run continues the SAME W&B run instead of
+    # creating a duplicate. Overridable with --wandb-run-id.
+    _wandb_id = cfg.wandb_run_id or hashlib.md5(
+        f"{_run_name}|seed{cfg.seed}|{cfg.benchmark}|{cfg.access}".encode()).hexdigest()[:16]
     wandb.init(
         # entity="ucalgary",
         project= wandb_project,
-        name=build_run_name(cfg, sparsifier),
+        name=_run_name,
+        id=_wandb_id,
+        resume="allow",
         config=cfg.__dict__,
         mode="disabled" if cfg.disable_wandb else "online",
     )
 
     global_epoch = 0
     global_step = 0
+    _last_ckpt_t = time.time()
+
+    # ---- resume, if asked and a checkpoint exists ----
+    start_iter, start_epoch = 0, 0
+    _ck = load_checkpoint(cfg.ckpt_path, device) if cfg.resume else None
+    if _ck is not None:
+        model.load_state_dict(_ck['model'])
+        if sparsifier is not None and _ck.get('sp_step_count') is not None:
+            sparsifier._step_count = int(_ck['sp_step_count'])
+        global_epoch = _ck['global_epoch']
+        global_step  = _ck['global_step']
+        start_iter, start_epoch = _ck['i_iter'], _ck['epoch'] + 1
+        if start_epoch >= _ck['real_epochs']:      # that stage was finished
+            start_iter, start_epoch = start_iter + 1, 0
+        _restore_rng(_ck.get('rng'))
+        print(f"[ckpt] resumed {cfg.ckpt_path}: stage {start_iter}, epoch {start_epoch}, "
+              f"global_step {global_step}, sparsifier step {_ck.get('sp_step_count')}")
+        if start_iter >= task.n_chunks:
+            print("[ckpt] checkpoint says the run is already complete; exiting.")
+            wandb.finish()
+            return
+    elif cfg.resume:
+        print(f"[ckpt] --resume set but no checkpoint at {cfg.ckpt_path}; starting fresh")
 
     for i_iter in range(task.n_chunks):
+        if i_iter < start_iter:                    # already done in an earlier job
+            continue
         if cfg.benchmark == 'warm_start' and i_iter == 0:
             log_every = 100 // cfg.warm_start_subset_ratio
         else:
@@ -279,7 +399,19 @@ def main(cfg):
             if hasattr(sparsifier, 'zero_inactive_param_momentum_buffers'):
                 sparsifier.zero_inactive_param_momentum_buffers()
 
+        # Resuming into a partially-done stage: the optimizer and LR scheduler were
+        # just rebuilt, so put back the state they had when the checkpoint was taken.
+        if _ck is not None and i_iter == start_iter and start_epoch > 0:
+            optimizer.load_state_dict(_ck['opt'])
+            if cfg.use_cosine_lr and _ck.get('sched') is not None:
+                cosine_scheduler.load_state_dict(_ck['sched'])
+            print(f"[ckpt] restored optimizer/scheduler into stage {i_iter} "
+                  f"at epoch {start_epoch}")
+
         for epoch in pbar:
+            # epochs already completed before the checkpoint
+            if _ck is not None and i_iter == start_iter and epoch < start_epoch:
+                continue
             pbar.set_description(f'Iter {i_iter} | Epoch {epoch}')
             do_logging = global_epoch % log_every == 0
 
@@ -356,6 +488,21 @@ def main(cfg):
                 pbar.set_postfix(**p_fix)
 
             global_epoch += 1
+
+            # Periodic checkpoint. Worst case lost on a wall clock kill is
+            # ckpt_every_epochs epochs. Written atomically (.tmp + rename).
+            # Trigger on ELAPSED TIME, not epoch count: early stages run an epoch
+            # in ~2.4 s, so an epoch-count trigger would write 91 MB every few
+            # seconds x 44 processes onto NFS. Always save at a stage boundary.
+            _due = (time.time() - _last_ckpt_t) >= cfg.ckpt_min_interval_sec
+            if cfg.ckpt_path and (_due or epoch == real_epochs - 1):
+                _last_ckpt_t = time.time()
+                save_checkpoint(
+                    cfg.ckpt_path, model=model, optimizer=optimizer,
+                    scheduler=cosine_scheduler if cfg.use_cosine_lr else None,
+                    sparsifier=sparsifier, i_iter=i_iter, epoch=epoch,
+                    real_epochs=real_epochs, global_epoch=global_epoch,
+                    global_step=global_step, wandb_run_id=_wandb_id)
 
         del trainloader
         torch.cuda.empty_cache()
