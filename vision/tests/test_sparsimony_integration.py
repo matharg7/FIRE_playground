@@ -4,7 +4,7 @@ Integration tests for the sparsimony integration in train_st.py / config_st.py.
 Coverage:
   1.  Config – flat sparsifier fields, argparse round-trip
   2.  sys.path setup – sparsimony repo importable
-  3.  compute_total_gradient_steps – correctness for simple mock tasks
+  3.  compute_gradient_steps_per_chunk – correctness for simple mock tasks
   4.  build_sparsifier – dense returns None; rigl/set/gmp/static return prepared sparsifiers
   5.  Derived hyperparameters – t_end, delta_t values propagated correctly
   6.  sparse_config building – only Conv2d/Linear weights targeted
@@ -55,7 +55,7 @@ def _make_cfg(**overrides):
         'log_every': 1, 'seed': 0, 'batch_size': 256, 'disable_wandb': True,
         'sparsifier': 'dense',
         'sparsity': 0.9, 'num_mask_updates': 500, 't_end_ratio': 0.8,
-        'pruning_ratio': 0.3,
+        'pruning_ratio': 0.3, 'drop_fraction_schedule': 'global',
         't_accel_ratio': 0.2, 'initial_sparsity': 0.0,
         'n_epochs': 100,  # normally set by get_task()
     }
@@ -64,7 +64,7 @@ def _make_cfg(**overrides):
 
 
 def _make_mock_task(cfg, chunk_sizes):
-    """Minimal task mock that satisfies compute_total_gradient_steps."""
+    """Minimal task mock that satisfies compute_gradient_steps_per_chunk."""
     task = types.SimpleNamespace()
     task.n_chunks = len(chunk_sizes)
     task._train_datasets = [
@@ -152,14 +152,24 @@ class TestSparsimonyImport:
 
 
 # ---------------------------------------------------------------------------
-# 3. compute_total_gradient_steps
+# 3. compute_gradient_steps_per_chunk
 # ---------------------------------------------------------------------------
 
 class TestComputeTotalGradientSteps:
     def _steps(self, cfg, chunk_sizes):
-        from train_st import compute_total_gradient_steps
+        from train_st import compute_gradient_steps_per_chunk
         task = _make_mock_task(cfg, chunk_sizes)
-        return compute_total_gradient_steps(cfg, task)
+        return sum(compute_gradient_steps_per_chunk(cfg, task))
+
+    def _per_chunk(self, cfg, chunk_sizes):
+        from train_st import compute_gradient_steps_per_chunk
+        task = _make_mock_task(cfg, chunk_sizes)
+        return compute_gradient_steps_per_chunk(cfg, task)
+
+    def test_returns_one_entry_per_chunk(self):
+        cfg = _make_cfg(benchmark='continual', log_every=1, n_epochs=100, batch_size=100)
+        per_chunk = self._per_chunk(cfg, [1000, 2000, 3000])
+        assert per_chunk == [10 * 100, 20 * 100, 30 * 100]
 
     def test_single_chunk_formula(self):
         cfg = _make_cfg(benchmark='continual', log_every=1, n_epochs=100, batch_size=100)
@@ -224,7 +234,7 @@ class TestBuildSparsifier:
         )
         opt = torch.optim.Adam(model.parameters(), lr=1e-3)
         total_steps = 500
-        sp = build_sparsifier(cfg, model, opt, total_steps)
+        sp = build_sparsifier(cfg, model, opt, [total_steps])
         return sp, model, opt, total_steps
 
     def test_dense_returns_none(self):
@@ -257,7 +267,7 @@ class TestBuildSparsifier:
         cfg = _make_cfg(sparsifier='unknown')
         opt = torch.optim.Adam(model.parameters(), lr=1e-3)
         with pytest.raises(ValueError, match="Unknown sparsifier"):
-            build_sparsifier(cfg, model, opt, 500)
+            build_sparsifier(cfg, model, opt, [500])
 
     def test_rigl_sparsity_stored(self):
         sp, *_ = self._build('rigl')
@@ -275,7 +285,7 @@ class TestBuildSparsifier:
                         num_mask_updates=50, pruning_ratio=0.3)
         opt = torch.optim.Adam(model.parameters(), lr=1e-3)
         total = 500
-        sp = build_sparsifier(cfg, model, opt, total)
+        sp = build_sparsifier(cfg, model, opt, [total])
         expected_t_end = int(0.8 * total)
         # Scheduler stores t_end
         assert sp.scheduler.t_end == expected_t_end
@@ -287,7 +297,7 @@ class TestBuildSparsifier:
                         num_mask_updates=50, pruning_ratio=0.3)
         opt = torch.optim.Adam(model.parameters(), lr=1e-3)
         total = 500
-        sp = build_sparsifier(cfg, model, opt, total)
+        sp = build_sparsifier(cfg, model, opt, [total])
         expected_delta_t = max(1, total // 50)
         assert sp.scheduler.delta_t == expected_delta_t
 
@@ -299,7 +309,7 @@ class TestBuildSparsifier:
                         t_accel_ratio=0.2, num_mask_updates=50, initial_sparsity=0.0)
         opt = torch.optim.Adam(model.parameters(), lr=1e-3)
         total = 500
-        sp = build_sparsifier(cfg, model, opt, total)
+        sp = build_sparsifier(cfg, model, opt, [total])
         expected_t_accel = int(0.2 * total)
         assert sp.scheduler.t_accel == expected_t_accel
 
@@ -359,7 +369,7 @@ class TestPrepare:
                         t_end_ratio=0.8, t_accel_ratio=0.2,
                         pruning_ratio=0.3, initial_sparsity=0.0)
         opt = torch.optim.Adam(model.parameters(), lr=1e-3)
-        sp = build_sparsifier(cfg, model, opt, 500)
+        sp = build_sparsifier(cfg, model, opt, [500])
         return sp, model, opt
 
     def test_prepared_flag_set(self):
@@ -394,7 +404,7 @@ class TestStep:
                         t_end_ratio=0.8, pruning_ratio=0.3)
         opt = torch.optim.Adam(model.parameters(), lr=1e-3)
         # Use a small total_steps so delta_t is manageable
-        sp = build_sparsifier(cfg, model, opt, 500)
+        sp = build_sparsifier(cfg, model, opt, [500])
         return model, opt, sp
 
     def test_step_does_not_raise(self):
@@ -436,7 +446,7 @@ class TestOptimizerReset:
         cfg = _make_cfg(sparsifier='rigl', sparsity=0.5, num_mask_updates=50,
                         t_end_ratio=0.8, pruning_ratio=0.3)
         opt = torch.optim.Adam(model.parameters(), lr=1e-3)
-        sp = build_sparsifier(cfg, model, opt, 500)
+        sp = build_sparsifier(cfg, model, opt, [500])
         _do_step(model, opt, sp)  # warm up optimizer state
         return model, opt, sp
 
@@ -476,7 +486,7 @@ class TestSparsityApplied:
                         num_mask_updates=50, t_end_ratio=0.8,
                         t_accel_ratio=0.2, pruning_ratio=0.3, initial_sparsity=0.0)
         opt = torch.optim.Adam(model.parameters(), lr=1e-3)
-        sp = build_sparsifier(cfg, model, opt, total_steps=200)
+        sp = build_sparsifier(cfg, model, opt, chunk_steps=[200])
         return sp, model, opt
 
     def test_masks_exist_after_prepare(self):
@@ -536,7 +546,7 @@ class TestDenseBaseline:
         model = TinyNet()
         cfg = _make_cfg(sparsifier='dense')
         opt = torch.optim.Adam(model.parameters(), lr=1e-3)
-        assert build_sparsifier(cfg, model, opt, 1000) is None
+        assert build_sparsifier(cfg, model, opt, [1000]) is None
 
     def test_training_loop_with_none_sparsifier(self):
         model = TinyNet()
@@ -560,7 +570,7 @@ class TestEndToEnd:
                         pruning_ratio=0.3, initial_sparsity=0.0)
         opt = torch.optim.Adam(model.parameters(), lr=1e-3)
         total_steps = n_iters * steps_per_iter
-        sp = build_sparsifier(cfg, model, opt, total_steps)
+        sp = build_sparsifier(cfg, model, opt, [total_steps])
 
         for _ in range(n_iters):
             opt = torch.optim.Adam(model.parameters(), lr=1e-3)
@@ -600,7 +610,7 @@ class TestEndToEnd:
         cfg = _make_cfg(sparsifier='rigl', sparsity=0.5, num_mask_updates=50,
                         t_end_ratio=0.8, pruning_ratio=0.3)
         opt = torch.optim.Adam(model.parameters(), lr=1e-3)
-        sp = build_sparsifier(cfg, model, opt, 500)
+        sp = build_sparsifier(cfg, model, opt, [500])
 
         x, y = torch.randn(4, 3, 8, 8), torch.randint(0, 4, (4,))
         opt.zero_grad()
@@ -626,7 +636,7 @@ class TestMaskUpdateSparsifiesParams:
                         pruning_ratio=0.3, initial_sparsity=0.0)
         model = TinyNet()
         opt = torch.optim.Adam(model.parameters(), lr=1e-3)
-        sp = build_sparsifier(cfg, model, opt, total_steps=50)
+        sp = build_sparsifier(cfg, model, opt, chunk_steps=[50])
         return sp, model, opt
 
     def test_mask_changes_after_topology_update(self):
@@ -698,7 +708,7 @@ class TestOptimizerRenewalPreservesState:
                         t_end_ratio=0.8, pruning_ratio=0.3)
         model = TinyNet()
         opt = torch.optim.Adam(model.parameters(), lr=1e-3)
-        sp = build_sparsifier(cfg, model, opt, total_steps=50)
+        sp = build_sparsifier(cfg, model, opt, chunk_steps=[50])
         # Run past first mask update so there is interesting mask state
         for _ in range(sp.scheduler.delta_t + 2):
             _do_step(model, opt, sp)
@@ -760,3 +770,270 @@ class TestOptimizerRenewalPreservesState:
             sp.zero_inactive_param_momentum_buffers()
         for _ in range(5):
             _do_step(model, new_opt, sp)
+
+
+# ---------------------------------------------------------------------------
+# 13. drop_fraction_schedule – global | per_task | constant
+# ---------------------------------------------------------------------------
+
+class TestDropFractionSchedule:
+    """The drop-fraction schedule shapes cfg.pruning_ratio over training.
+
+    'global'   – one cosine decay over t_end_ratio * sum(chunk_steps)
+    'per_task' – cosine decay over each chunk, restarted at task boundaries
+    'constant' – flat at cfg.pruning_ratio until t_end
+    """
+
+    CHUNKS = [200, 200, 200]
+
+    def _build(self, schedule, sparsifier='rigl', chunk_steps=None):
+        from train_st import build_sparsifier
+        model = TinyNet()
+        # num_mask_updates is chosen so the global delta_t (8) is small
+        # relative to a single 200-step task, as in real configs.
+        cfg = _make_cfg(sparsifier=sparsifier, sparsity=0.5, num_mask_updates=60,
+                        t_end_ratio=0.8, t_accel_ratio=0.2, pruning_ratio=0.3,
+                        initial_sparsity=0.0, drop_fraction_schedule=schedule)
+        opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+        sp = build_sparsifier(cfg, model, opt,
+                              self.CHUNKS if chunk_steps is None else chunk_steps)
+        return sp, cfg
+
+    # -- validation ---------------------------------------------------------
+
+    def test_invalid_schedule_raises(self):
+        from train_st import build_sparsifier
+        model = TinyNet()
+        cfg = _make_cfg(sparsifier='rigl', drop_fraction_schedule='foo')
+        opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+        with pytest.raises(ValueError, match="drop_fraction_schedule"):
+            build_sparsifier(cfg, model, opt, self.CHUNKS)
+
+    def test_invalid_schedule_raises_even_for_dense(self):
+        """Validation happens before the dense early-return, so typos never pass silently."""
+        from train_st import build_sparsifier
+        model = TinyNet()
+        cfg = _make_cfg(sparsifier='dense', drop_fraction_schedule='foo')
+        opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+        with pytest.raises(ValueError, match="drop_fraction_schedule"):
+            build_sparsifier(cfg, model, opt, self.CHUNKS)
+
+    # -- global (unchanged behaviour) ---------------------------------------
+
+    def test_global_uses_full_run_horizon(self):
+        from sparsimony.schedulers.base import CosineDecayScheduler
+        sp, cfg = self._build('global')
+        assert isinstance(sp.scheduler, CosineDecayScheduler)
+        assert sp.scheduler.t_end == int(0.8 * sum(self.CHUNKS))
+
+    def test_global_decays_monotonically_to_zero(self):
+        sp, cfg = self._build('global')
+        dt, t_end = sp.scheduler.delta_t, sp.scheduler.t_end
+        vals = [sp.scheduler(t) for t in range(dt, t_end + 1, dt)]
+        assert vals[0] == pytest.approx(cfg.pruning_ratio, rel=0.05)
+        assert all(b <= a + 1e-9 for a, b in zip(vals, vals[1:])), "not monotonic"
+        assert vals[-1] == pytest.approx(0.0, abs=1e-2)
+
+    def test_global_returns_none_past_t_end(self):
+        sp, _ = self._build('global')
+        dt, t_end = sp.scheduler.delta_t, sp.scheduler.t_end
+        past = ((t_end // dt) + 1) * dt
+        assert sp.scheduler(past) is None
+
+    # -- per_task -----------------------------------------------------------
+
+    def test_per_task_horizon_is_first_chunk(self):
+        sp, _ = self._build('per_task')
+        assert sp.scheduler.t_end == self.CHUNKS[0]
+
+    def test_per_task_keeps_global_delta_t(self):
+        """Cadence must match 'global' exactly - only the cosine phase differs."""
+        sp_global, _ = self._build('global')
+        sp_per_task, _ = self._build('per_task')
+        assert sp_per_task.scheduler.delta_t == sp_global.scheduler.delta_t
+
+    def test_per_task_decays_to_zero_within_one_task(self):
+        sp, cfg = self._build('per_task')
+        dt, t_end = sp.scheduler.delta_t, sp.scheduler.t_end
+        vals = [sp.scheduler(t) for t in range(dt, t_end + 1, dt)]
+        assert vals[0] == pytest.approx(cfg.pruning_ratio, rel=0.1)
+        assert all(b <= a + 1e-9 for a, b in zip(vals, vals[1:]))
+        assert vals[-1] == pytest.approx(0.0, abs=1e-2)
+
+    def test_per_task_restart_warms_drop_fraction_back_up(self):
+        """The reset done in main() at each chunk boundary re-warms the ratio."""
+        sp, cfg = self._build('per_task')
+        dt = sp.scheduler.delta_t
+
+        # Run the first task to exhaustion
+        sp._step_count = self.CHUNKS[0]
+        end_of_task = sp.scheduler((self.CHUNKS[0] // dt) * dt)
+        assert end_of_task == pytest.approx(0.0, abs=1e-2)
+
+        # main()'s per-task restart
+        sp._step_count = 0
+        sp.scheduler.t_end = self.CHUNKS[1]
+        assert sp.scheduler(dt) == pytest.approx(cfg.pruning_ratio, rel=0.1)
+        assert sp.scheduler(dt) > end_of_task
+
+    def test_per_task_uneven_chunks_retarget(self):
+        """Each task's horizon follows its own step count."""
+        chunks = [100, 400, 250]
+        sp, _ = self._build('per_task', chunk_steps=chunks)
+        assert sp.scheduler.t_end == chunks[0]
+        for i in (1, 2):
+            sp._step_count = 0
+            sp.scheduler.t_end = chunks[i]
+            assert sp.scheduler.t_end == chunks[i]
+
+    def test_per_task_logged_ratio_is_sawtooth(self):
+        """get_current_pruning_ratio must reflect the restart (it reads _step_count)."""
+        from dst_log_utils import get_current_pruning_ratio
+        sp, cfg = self._build('per_task')
+        dt = sp.scheduler.delta_t
+
+        sp._step_count = self.CHUNKS[0] - 1
+        late = get_current_pruning_ratio(sp)
+
+        sp._step_count = 0
+        sp.scheduler.t_end = self.CHUNKS[1]
+        early = get_current_pruning_ratio(sp)
+
+        assert late is not None and early is not None
+        assert early > late, f"expected sawtooth, got {late} -> {early}"
+        assert early == pytest.approx(cfg.pruning_ratio, rel=0.1)
+
+    # -- constant -----------------------------------------------------------
+
+    def test_constant_uses_constant_scheduler(self):
+        from sparsimony.schedulers.base import ConstantScheduler
+        sp, _ = self._build('constant')
+        assert isinstance(sp.scheduler, ConstantScheduler)
+
+    def test_constant_value_is_flat(self):
+        sp, cfg = self._build('constant')
+        dt, t_end = sp.scheduler.delta_t, sp.scheduler.t_end
+        vals = [sp.scheduler(t) for t in range(dt, t_end + 1, dt)]
+        assert all(v == cfg.pruning_ratio for v in vals), vals
+
+    def test_constant_keeps_global_horizon_and_cadence(self):
+        sp_global, _ = self._build('global')
+        sp_const, _ = self._build('constant')
+        assert sp_const.scheduler.t_end == sp_global.scheduler.t_end
+        assert sp_const.scheduler.delta_t == sp_global.scheduler.delta_t
+
+    def test_constant_returns_none_past_t_end(self):
+        sp, _ = self._build('constant')
+        dt, t_end = sp.scheduler.delta_t, sp.scheduler.t_end
+        assert sp.scheduler(((t_end // dt) + 1) * dt) is None
+
+    # -- applies to set as well ---------------------------------------------
+
+    def test_set_honours_schedule(self):
+        from sparsimony.schedulers.base import ConstantScheduler
+        sp, _ = self._build('constant', sparsifier='set')
+        assert isinstance(sp.scheduler, ConstantScheduler)
+        sp, _ = self._build('per_task', sparsifier='set')
+        assert sp.scheduler.t_end == self.CHUNKS[0]
+
+    # -- ignored for gmp / static -------------------------------------------
+
+    def test_gmp_ignores_schedule(self, capsys):
+        from sparsimony.schedulers.base import AcceleratedCubicScheduler
+        sp, _ = self._build('per_task', sparsifier='gmp')
+        assert isinstance(sp.scheduler, AcceleratedCubicScheduler)
+        assert sp.scheduler.t_end == int(0.8 * sum(self.CHUNKS))
+        assert "has no effect" in capsys.readouterr().out
+
+    def test_static_ignores_schedule(self, capsys):
+        from sparsimony.schedulers.base import StaticScheduler
+        sp, _ = self._build('constant', sparsifier='static')
+        # static keeps its no-op StaticScheduler; the swap must not touch it
+        assert isinstance(sp.scheduler, StaticScheduler)
+        assert sp.scheduler(0) is None
+        assert "has no effect" in capsys.readouterr().out
+
+    def test_gmp_global_prints_no_warning(self, capsys):
+        self._build('global', sparsifier='gmp')
+        assert "has no effect" not in capsys.readouterr().out
+
+    # -- run name -----------------------------------------------------------
+
+    def test_run_name_encodes_schedule(self):
+        from train_st import build_run_name
+        for schedule in ('global', 'per_task', 'constant'):
+            sp, cfg = self._build(schedule)
+            assert build_run_name(cfg, sp).endswith(f"_df_{schedule}")
+
+    def test_run_names_differ_across_schedules(self):
+        from train_st import build_run_name
+        names = set()
+        for schedule in ('global', 'per_task', 'constant'):
+            sp, cfg = self._build(schedule)
+            names.add(build_run_name(cfg, sp))
+        assert len(names) == 3, names
+
+
+# ---------------------------------------------------------------------------
+# 14. per_task restart driven through main()'s real chunk loop
+# ---------------------------------------------------------------------------
+
+class TestPerTaskLoopIntegration:
+    """Mirror the chunk loop of train_st.main(), including the per-task reset,
+    and check the drop fraction actually traces a sawtooth over real steps."""
+
+    def _run(self, schedule, n_chunks=3, steps_per_chunk=40):
+        from train_st import build_sparsifier
+        from dst_log_utils import get_current_pruning_ratio
+
+        chunk_steps = [steps_per_chunk] * n_chunks
+        model = TinyNet()
+        cfg = _make_cfg(sparsifier='rigl', sparsity=0.5, num_mask_updates=20,
+                        t_end_ratio=0.8, pruning_ratio=0.3,
+                        drop_fraction_schedule=schedule)
+        opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+        sp = build_sparsifier(cfg, model, opt, chunk_steps)
+
+        ratio_at_chunk_start = []
+        for i_iter in range(n_chunks):
+            opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+            # --- this block mirrors train_st.main() verbatim ---
+            sp.optimizer = opt
+            if (cfg.drop_fraction_schedule == 'per_task'
+                    and cfg.sparsifier in ('rigl', 'set')):
+                sp._step_count = 0
+                sp.scheduler.t_end = chunk_steps[i_iter]
+            if hasattr(sp, 'zero_inactive_param_momentum_buffers'):
+                sp.zero_inactive_param_momentum_buffers()
+            # ---------------------------------------------------
+            ratio_at_chunk_start.append(get_current_pruning_ratio(sp))
+            for _ in range(steps_per_chunk):
+                _do_step(model, opt, sp)
+        return sp, cfg, ratio_at_chunk_start, model
+
+    def test_per_task_ratio_resets_every_chunk(self):
+        sp, cfg, ratios, _ = self._run('per_task')
+        assert all(r == pytest.approx(ratios[0]) for r in ratios), ratios
+        assert ratios[0] == pytest.approx(cfg.pruning_ratio, rel=0.15)
+
+    def test_global_ratio_decays_across_chunks(self):
+        sp, cfg, ratios, _ = self._run('global')
+        assert all(b < a for a, b in zip(ratios, ratios[1:])), ratios
+
+    def test_constant_ratio_flat_across_chunks(self):
+        sp, cfg, ratios, _ = self._run('constant')
+        assert all(r == cfg.pruning_ratio for r in ratios), ratios
+
+    def test_per_task_step_count_resets(self):
+        sp, *_ = self._run('per_task', n_chunks=3, steps_per_chunk=40)
+        assert sp._step_count == 40, "counter should hold only the last chunk"
+
+    def test_global_step_count_accumulates(self):
+        sp, *_ = self._run('global', n_chunks=3, steps_per_chunk=40)
+        assert sp._step_count == 120
+
+    def test_sparsity_maintained_across_restarts(self):
+        from dst_log_utils import get_sparsity_stats
+        sp, cfg, _, model = self._run('per_task')
+        stats = get_sparsity_stats(model)
+        assert stats['mask_sparsity'] == pytest.approx(cfg.sparsity, abs=0.05)

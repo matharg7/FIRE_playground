@@ -50,6 +50,11 @@ CONFIG = {
 
     # RigL / SET
     'pruning_ratio': 0.3,        # fraction of nnz weights to prune per update
+    # How the drop fraction (pruning_ratio) is scheduled over training:
+    #   global   – one cosine decay across the whole run (all tasks)
+    #   per_task – cosine decay across each task, warmed back up at task start
+    #   constant – held fixed at pruning_ratio until t_end
+    'drop_fraction_schedule': 'global',   # global | per_task | constant
 
     # GMP only
     't_accel_ratio': 0.2,        # t_accel = t_accel_ratio * total_steps

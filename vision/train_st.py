@@ -70,15 +70,17 @@ def get_task(cfg):
 # Gradient-step counter
 # ---------------------------------------------------------------------------
 
-def compute_total_gradient_steps(cfg, task):
-    """Return the total number of optimizer.step() calls for the full run.
+def compute_gradient_steps_per_chunk(cfg, task):
+    """Return the number of optimizer.step() calls for each chunk, by i_iter.
 
     Uses actual chunk sizes from the task object so the count is exact
-    regardless of benchmark / dataset / batch_size.  This value is used to
+    regardless of benchmark / dataset / batch_size.  These values are used to
     derive sparsifier hyperparameters (t_end, delta_t) so they scale
-    correctly without manual tuning.
+    correctly without manual tuning: the sum over chunks gives the full-run
+    horizon, while individual entries give the per-task horizon needed by the
+    'per_task' drop-fraction schedule.
     """
-    total = 0
+    steps = []
     for i_iter in range(task.n_chunks):
         if cfg.benchmark == 'warm_start' and i_iter == 0:
             log_every = 100 // cfg.warm_start_subset_ratio
@@ -87,16 +89,19 @@ def compute_total_gradient_steps(cfg, task):
         real_epochs = cfg.n_epochs * log_every
         chunk_size = len(task._train_datasets[i_iter])
         steps_per_epoch = math.ceil(chunk_size / cfg.batch_size)
-        total += real_epochs * steps_per_epoch
-    return total
+        steps.append(real_epochs * steps_per_epoch)
+    return steps
 
 
 # ---------------------------------------------------------------------------
 # Sparsifier factory
 # ---------------------------------------------------------------------------
 
-def build_sparsifier(cfg, model, optimizer, total_steps):
+def build_sparsifier(cfg, model, optimizer, chunk_steps):
     """Create, configure, and prepare the requested sparsifier.
+
+    ``chunk_steps`` is the per-chunk gradient-step count from
+    compute_gradient_steps_per_chunk; total_steps is its sum.
 
     Derived hyperparameters (printed for reproducibility):
         t_end   = cfg.t_end_ratio  * total_steps          (all sparse methods)
@@ -111,13 +116,30 @@ def build_sparsifier(cfg, model, optimizer, total_steps):
         'set'    – SET    (uniform distribution, constant schedule)
         'gmp'    – GMP*   (uniform distribution, accelerated cubic schedule)
         'static' – Static magnitude pruning (one-shot, no regrowth)
+
+    cfg.drop_fraction_schedule shapes the drop fraction (cfg.pruning_ratio)
+    for RigL / SET only; it is ignored by GMP and static, which have no
+    drop-fraction scheduler:
+        'global'   – one cosine decay over t_end = t_end_ratio * total_steps
+        'per_task' – cosine decay over t_end = chunk_steps[i_iter], restarted
+                     at every task boundary by main().  delta_t keeps its
+                     global value so the mask-update cadence is unchanged.
+        'constant' – held at cfg.pruning_ratio until t_end (global horizon)
     """
+    if cfg.drop_fraction_schedule not in ('global', 'per_task', 'constant'):
+        raise ValueError(
+            f"Unknown drop_fraction_schedule '{cfg.drop_fraction_schedule}'. "
+            "Choose from: global, per_task, constant"
+        )
+
     if cfg.sparsifier == 'dense':
         return None
 
     from sparsimony import rigl, gmp, static
     from sparsimony import set as sp_set  # avoid shadowing Python's built-in
+    from sparsimony.schedulers.base import ConstantScheduler
 
+    total_steps = sum(chunk_steps)
     t_end = int(cfg.t_end_ratio * total_steps)
 
     if cfg.sparsifier == 'rigl':
@@ -153,6 +175,8 @@ def build_sparsifier(cfg, model, optimizer, total_steps):
         )
 
     elif cfg.sparsifier == 'static':
+        # One-shot pruning: no scheduler, hence no update cadence.
+        delta_t = None
         sparsifier = static(
             optimizer,
             sparsity=cfg.sparsity,
@@ -162,6 +186,29 @@ def build_sparsifier(cfg, model, optimizer, total_steps):
         raise ValueError(
             f"Unknown sparsifier '{cfg.sparsifier}'. "
             "Choose from: dense, rigl, set, gmp, static"
+        )
+
+    # Reshape the drop-fraction schedule.  Only RigL / SET expose one; the
+    # factories above install a CosineDecayScheduler over the global horizon,
+    # which is exactly the 'global' behaviour.
+    if cfg.sparsifier in ('rigl', 'set'):
+        if cfg.drop_fraction_schedule == 'constant':
+            # t_end / delta_t keep their global meaning; only the shape changes.
+            sparsifier.scheduler = ConstantScheduler(
+                quantity=cfg.pruning_ratio,
+                t_end=t_end,
+                delta_t=delta_t,
+            )
+        elif cfg.drop_fraction_schedule == 'per_task':
+            # Cosine restarts each task: t_end is retargeted (and _step_count
+            # reset) at every chunk boundary in main().  delta_t stays global,
+            # so t_end_ratio only feeds the update cadence in this mode.
+            sparsifier.scheduler.t_end = chunk_steps[0]
+    elif cfg.drop_fraction_schedule != 'global':
+        print(
+            f"[Sparsifier] drop_fraction_schedule="
+            f"'{cfg.drop_fraction_schedule}' has no effect for "
+            f"'{cfg.sparsifier}'; ignoring."
         )
 
     # Prepare: reparametrize all Conv2d and Linear weight tensors
@@ -174,7 +221,8 @@ def build_sparsifier(cfg, model, optimizer, total_steps):
 
     print(
         f"[Sparsifier] {cfg.sparsifier} | sparsity={cfg.sparsity} | "
-        f"total_steps={total_steps} | t_end={t_end} | delta_t={delta_t}"
+        f"total_steps={total_steps} | t_end={t_end} | delta_t={delta_t} | "
+        f"drop_fraction_schedule={cfg.drop_fraction_schedule}"
     )
     return sparsifier
 
@@ -195,6 +243,7 @@ def build_run_name(cfg, sparsifier) -> str:
             f"_sparsity_{cfg.sparsity}"
             f"_pruning_ratio_{cfg.pruning_ratio}"
             f"_delta_t_{dt}"
+            f"_df_{cfg.drop_fraction_schedule}"
         )
     if cfg.sparsifier == 'gmp':
         return (
@@ -226,9 +275,9 @@ def main(cfg):
     model = build_model(cfg).to(device)
     optimizer = get_optimizer(model, cfg)
 
-    total_steps = compute_total_gradient_steps(cfg, task)
+    chunk_steps = compute_gradient_steps_per_chunk(cfg, task)
     # init DDP AFTER reparametrization if using distributed training
-    sparsifier = build_sparsifier(cfg, model, optimizer, total_steps)
+    sparsifier = build_sparsifier(cfg, model, optimizer, chunk_steps)
     itop_tracker = ITOPTracker(sparsifier) if sparsifier is not None else None
 
     criterion = nn.CrossEntropyLoss()
@@ -268,6 +317,12 @@ def main(cfg):
 
         if sparsifier is not None:
             sparsifier.optimizer = optimizer
+            if (cfg.drop_fraction_schedule == 'per_task'
+                    and cfg.sparsifier in ('rigl', 'set')):
+                # Restart the cosine: warm the drop fraction back up to
+                # cfg.pruning_ratio and decay it over this task's length.
+                sparsifier._step_count = 0
+                sparsifier.scheduler.t_end = chunk_steps[i_iter]
             if hasattr(sparsifier, 'zero_inactive_param_momentum_buffers'):
                 sparsifier.zero_inactive_param_momentum_buffers()
 
