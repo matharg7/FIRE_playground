@@ -211,11 +211,19 @@ def build_sparsifier(cfg, model, optimizer, chunk_steps):
             f"'{cfg.sparsifier}'; ignoring."
         )
 
-    # Prepare: reparametrize all Conv2d and Linear weight tensors
-    sparse_config = [
-        {"tensor_fqn": f"{fqn}.weight"}
+    # Prepare: reparametrize all Conv2d and Linear weight tensors except the
+    # output layer (flagged by models/heads.py; the last one if unflagged),
+    # which is left dense.
+    prunable = [
+        (fqn, module)
         for fqn, module in model.named_modules()
         if isinstance(module, (nn.Linear, nn.Conv2d))
+    ]
+    skip = {fqn for fqn, module in prunable if getattr(module, "is_output_layer", False)}
+    if not skip:
+        skip = {prunable[-1][0]}
+    sparse_config = [
+        {"tensor_fqn": f"{fqn}.weight"} for fqn, _ in prunable if fqn not in skip
     ]
     sparsifier.prepare(model, sparse_config)
 
