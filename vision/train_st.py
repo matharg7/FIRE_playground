@@ -293,12 +293,15 @@ def main(cfg):
     warmup_rate = 0.1
 
     wandb_project = cfg.wandb_project or f"{cfg.benchmark}_{cfg.task}_{cfg.model}"
+    # Entity and mode come from the environment (WANDB_ENTITY, WANDB_MODE), so the
+    # same code logs online where compute nodes have internet and offline where
+    # they do not (e.g. Narval; upload later with `wandb sync`). Unset WANDB_MODE
+    # means online, as before.
     wandb.init(
-        entity="ucalgary",
         project=wandb_project,
-        name=build_run_name(cfg, sparsifier),
+        name=f"{build_run_name(cfg, sparsifier)}_seed{cfg.seed}",
         config=cfg.__dict__,
-        mode="disabled" if cfg.disable_wandb else "online",
+        mode="disabled" if cfg.disable_wandb else None,
     )
 
     global_epoch = 0

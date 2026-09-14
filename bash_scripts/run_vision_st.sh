@@ -12,6 +12,7 @@
 #   ./run_vision_st.sh --use-cosine-lr True --cosine-eta-min 0.0
 #   ./run_vision_st.sh --use-cosine-lr True --cosine-t-max-epochs 200
 #   ./run_vision_st.sh --wandb-project my_proj --log-name my_run
+#   ./run_vision_st.sh --seed 5                           # training seed (default 0)
 #
 # Flags accept `--flag value` or `--flag=value`. Output is captured to
 # <repo>/logs/<run_name>.out (or logs/<subdir>/<run_name>.out with --log-subdir).
@@ -35,6 +36,7 @@ LOG_NAME=""
 MODEL="RESNET18"
 TASK="CIFAR10"
 BENCHMARK="continual"
+SEED="0"
 LOG_SUBDIR=""
 GPU="0"
 
@@ -81,13 +83,15 @@ while [[ $# -gt 0 ]]; do
         --task=*)                TASK="${1#*=}"; shift ;;
         --benchmark)             BENCHMARK="${2:?--benchmark needs an argument}"; shift 2 ;;
         --benchmark=*)           BENCHMARK="${1#*=}"; shift ;;
+        --seed)                  SEED="${2:?--seed needs an argument}"; shift 2 ;;
+        --seed=*)                SEED="${1#*=}"; shift ;;
         --log-subdir|--log_subdir)
                                  LOG_SUBDIR="${2:?--log-subdir needs an argument}"; shift 2 ;;
         --log-subdir=*|--log_subdir=*)
                                  LOG_SUBDIR="${1#*=}"; shift ;;
         --gpu)                   GPU="${2:?--gpu needs an argument}"; shift 2 ;;
         --gpu=*)                 GPU="${1#*=}"; shift ;;
-        -h|--help)               sed -n '4,17p' "${BASH_SOURCE[0]}"; exit 0 ;;
+        -h|--help)               sed -n '4,18p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *)                       echo "ERROR: unknown option: $1" >&2; exit 1 ;;
     esac
 done
@@ -136,6 +140,9 @@ case "$USE_COSINE_LR" in
         ;;
 esac
 
+# Keep runs that differ only by seed in separate log files.
+run_name="${run_name}_seed${SEED}"
+
 # --log-name overrides the derived log file name (W&B run name is unaffected).
 [[ -n "$LOG_NAME" ]] && run_name="$LOG_NAME"
 
@@ -147,6 +154,7 @@ LOG_FILE="${LOGDIR}/${run_name}.out"
 echo "Sparsifier : $SPARSIFIER"
 echo "Model/Task : $MODEL / $TASK ($BENCHMARK)"
 echo "Drop frac. : $DROP_FRACTION_SCHEDULE"
+echo "Seed       : $SEED"
 echo "LR sched.  : cosine=$USE_COSINE_LR T_max=$COSINE_T_MAX_EPOCHS eta_min=$COSINE_ETA_MIN"
 echo "Run name   : $run_name"
 echo "Log file   : $LOG_FILE"
@@ -155,6 +163,7 @@ echo
 cd "$REPO_ROOT/vision"
 python train_st.py \
     --benchmark "$BENCHMARK" \
+    --seed "$SEED" \
     --model "$MODEL" \
     --task "$TASK" \
     --sparsifier "$SPARSIFIER" \

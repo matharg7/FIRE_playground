@@ -111,31 +111,35 @@ class Task(ABC):
 
         correct = 0
         total = 0
-        for (images, labels) in test_loader:
-            images, labels = images.to(device), labels.to(device)
+        # Evaluation only needs gradients when log_input_grad calls backward().
+        # Otherwise autograd would store every activation for a backward pass
+        # that never happens. 
+        with torch.set_grad_enabled(log_input_grad):
+            for (images, labels) in test_loader:
+                images, labels = images.to(device), labels.to(device)
 
-            if log_input_grad:
-                images.requires_grad_()
+                if log_input_grad:
+                    images.requires_grad_()
 
-            # forward
-            outputs = model(images)
+                # forward
+                outputs = model(images)
 
-            if log_input_grad:
-                ce_loss = F.cross_entropy(outputs, labels)
-                ce_loss.backward()
-                total_input_grads += images.grad.flatten(start_dim=1).norm(dim=1).detach().cpu().numpy().tolist()
+                if log_input_grad:
+                    ce_loss = F.cross_entropy(outputs, labels)
+                    ce_loss.backward()
+                    total_input_grads += images.grad.flatten(start_dim=1).norm(dim=1).detach().cpu().numpy().tolist()
 
 
-            # log feature covariance and activation pattern
-            if log_features and num < sample_num:
-                acts = model.get_activations()
-                total_features.append(acts["backbone_output"].flatten(start_dim=1).detach().cpu())
-                num += labels.size(0)
+                # log feature covariance and activation pattern
+                if log_features and num < sample_num:
+                    acts = model.get_activations()
+                    total_features.append(acts["backbone_output"].flatten(start_dim=1).detach().cpu())
+                    num += labels.size(0)
 
-            # calculate accuracy
-            _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
+                # calculate accuracy
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
 
         if log_features:
             model.disable_hooks()

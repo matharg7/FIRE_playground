@@ -59,7 +59,7 @@ def rigl(
             t_end=t_end,
             delta_t=delta_t,
         ),
-        distribution=UniformDistribution(),
+        distribution=ERKDistribution(),
         optimizer=optimizer,
         sparsity=sparsity,
         global_pruning=global_pruning,
