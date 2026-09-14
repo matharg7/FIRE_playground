@@ -299,7 +299,7 @@ def main(cfg):
     # means online, as before.
     wandb.init(
         project=wandb_project,
-        name=build_run_name(cfg, sparsifier),
+        name=f"{build_run_name(cfg, sparsifier)}_seed{cfg.seed}",
         config=cfg.__dict__,
         mode="disabled" if cfg.disable_wandb else None,
     )
