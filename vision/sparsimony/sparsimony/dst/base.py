@@ -102,7 +102,7 @@ class DSTMixin(ABC):
         new_mask = self.grower.calculate_mask(sparsity, mask, *args, **kwargs)
         # Assign newly grown weights to self.grown_weights_init
         
-        torch.where(
+        original_weights.data = torch.where(
             new_mask != old_mask,
             torch.full_like(
                 original_weights, fill_value=self.grown_weights_init
