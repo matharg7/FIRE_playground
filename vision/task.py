@@ -3,6 +3,8 @@ from abc import ABC, abstractmethod
 import numpy as np
 import os
 import requests
+import shutil
+import tempfile
 from io import BytesIO
 import zipfile
 import torch
@@ -14,7 +16,27 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-DATA_DIR = "./data"
+def _resolve_data_dir():
+    """Directory holding the cached datasets, shared by every run.
+
+    Datasets are downloaded once and reused, so they live on $SCRATCH rather
+    than in the repo: scratch is the filesystem meant for bulk data, and
+    keeping one copy there means a job array of N runs performs zero
+    downloads instead of N.  Precedence:
+
+        FIRE_DATA_DIR  – explicit override (e.g. a $SLURM_TMPDIR staging copy)
+        $SCRATCH/datasets
+        ./data         – fallback off-cluster, where $SCRATCH is unset
+    """
+    data_dir = os.environ.get("FIRE_DATA_DIR")
+    if not data_dir:
+        scratch = os.environ.get("SCRATCH")
+        data_dir = os.path.join(scratch, "datasets") if scratch else "./data"
+    os.makedirs(data_dir, exist_ok=True)
+    return data_dir
+
+
+DATA_DIR = _resolve_data_dir()
 
 def get_transform(size: int, statistics):
     mean, std = statistics
@@ -337,29 +359,12 @@ def create_dir(path):
 class TinyImageNet(Task):
     def _get_dataset(self):
         root_dir = DATA_DIR
-        train_dir = os.path.join(root_dir, 'tiny-imagenet-200', 'train')
-        val_dir = os.path.join(root_dir, 'tiny-imagenet-200', 'val')
+        dataset_dir = os.path.join(root_dir, 'tiny-imagenet-200')
+        train_dir = os.path.join(dataset_dir, 'train')
+        val_dir = os.path.join(dataset_dir, 'val')
 
         if not os.path.exists(train_dir) or not os.path.exists(val_dir):
-            # Download Tiny ImageNet dataset
-            print("Downloading TinyImageNet dataset")
-            response = requests.get("http://cs231n.stanford.edu/tiny-imagenet-200.zip")
-            if response.status_code == 200:
-                with zipfile.ZipFile(BytesIO(response.content)) as zip_ref:
-                    zip_ref.extractall(root_dir)
-            else:
-                raise Exception(f"Failed to download dataset, status code: {response.status_code}")
-
-            # Create train and validation directories
-            create_dir(train_dir)
-            create_dir(val_dir)
-
-            # Move train data to train_dir
-            # os.rename(os.path.join(root_dir, 'tiny-imagenet-200', 'train'), train_dir)
-
-            # Separate validation images into separate sub-folders
-            self._organize_val_dir(root_dir, val_dir)
-            print("Successfully downloaded TinyImageNet dataset")
+            self._download(root_dir, dataset_dir)
 
 
         train_mean, train_std = (0.4802, 0.4481, 0.3975), (0.2770, 0.2691, 0.2821)
@@ -381,6 +386,43 @@ class TinyImageNet(Task):
         self.train_mean, self.train_std = train_mean, train_std
         self.test_mean, self.test_std = test_mean, test_std
         return train_dataset, test_dataset
+
+    def _download(self, root_dir, dataset_dir):
+        """Fetch TinyImageNet into the shared cache at ``dataset_dir``.
+
+        The archive is unpacked into a private staging directory and only then
+        renamed into place.  The rename is atomic, so concurrent runs sharing
+        the cache (a job array, say) can never observe a half-extracted tree;
+        whichever run loses the race discards its own copy.
+        """
+        print(f"Downloading TinyImageNet dataset to {dataset_dir}")
+        try:
+            response = requests.get("http://cs231n.stanford.edu/tiny-imagenet-200.zip")
+        except requests.RequestException as e:
+            raise RuntimeError(
+                f"Could not reach the TinyImageNet host ({e}). Compute nodes may "
+                f"have no internet access; download the dataset into {root_dir} "
+                "from a login node first."
+            ) from e
+        if response.status_code != 200:
+            raise Exception(f"Failed to download dataset, status code: {response.status_code}")
+
+        staging = tempfile.mkdtemp(prefix='.tiny-imagenet-200-tmp', dir=root_dir)
+        try:
+            with zipfile.ZipFile(BytesIO(response.content)) as zip_ref:
+                zip_ref.extractall(staging)
+            extracted = os.path.join(staging, 'tiny-imagenet-200')
+            # Separate validation images into per-class sub-folders
+            self._organize_val_dir(staging, os.path.join(extracted, 'val'))
+            try:
+                os.rename(extracted, dataset_dir)
+            except OSError:
+                # Another run populated the cache first; its copy is equivalent.
+                if not os.path.exists(dataset_dir):
+                    raise
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+        print(f"TinyImageNet dataset ready at {dataset_dir}")
 
     def _organize_val_dir(self, root_dir, val_dir):
         # Organize validation directory
