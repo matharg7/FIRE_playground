@@ -6,6 +6,15 @@ import numpy as np
 def fire(model, iteration):
     for name, m in model.named_modules():
         if isinstance(m, (nn.Linear, nn.Conv2d)):
+            # Under a sparsimony parametrization, m.weight is computed on access
+            # (mask * original), so `param.data = ...` below would write into a
+            # temporary and be silently discarded. Refuse rather than no-op.
+            if getattr(m, "parametrizations", None) is not None and "weight" in m.parametrizations:
+                raise RuntimeError(
+                    f"fire() cannot modify '{name}': its weight is reparametrized "
+                    "(sparse). Writing to m.weight.data would be silently dropped. "
+                    "Apply FIRE to parametrizations.weight.original instead."
+                )
             m_type = name.split(".")[-1]
 
             if m_type == "c_attn":

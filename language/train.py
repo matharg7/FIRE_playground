@@ -201,8 +201,6 @@ def get_dataset_len(dataset_name):
         return len(np.memmap(os.path.join(data_dir, 'train.bin'), dtype=np.uint16, mode='r'))
 
 
-iter_num = 0
-
 # load_model
 def load_model(ckpt_path):
     checkpoint = torch.load(ckpt_path, map_location=device)
@@ -370,7 +368,11 @@ for chunk_index, chunk_info in enumerate(chunk_config):
             # evaluate the loss on train/val sets and write checkpoints
             if local_iter_num % chunk_eval_interval == 0 and master_process:
                 losses = estimate_loss(chunk_dataset_name, train_ratio=chunk_ratio)
-                # print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+                # EVAL lines are the machine-readable record of a run: tests/helpers.py
+                # parses them, and they are the only loss output when wandb is off.
+                print(f"EVAL chunk {chunk_index} global_iter {global_iter_num} "
+                      f"local_iter {local_iter_num} train {losses['train']:.6f} "
+                      f"val {losses['val']:.6f}", flush=True)
                 if wandb_log:
                     wandb.log({
                         "global_learned_token": global_learned_token,

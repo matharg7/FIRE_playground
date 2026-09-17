@@ -1,0 +1,23 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Start the job side first, inside a GPU allocation:
+      //   cd language && python -m debugpy --listen 0.0.0.0:5678 --wait-for-client \
+      //       train_sparse.py --method vanilla --compile False --wandb_log False
+      // Then tunnel to that compute node, since it is not reachable directly:
+      //   ssh -L 5678:<nodename>:5678 <user>@<cluster>
+      "name": "Attach to train_sparse.py",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": { "host": "localhost", "port": 5678 },
+      "pathMappings": [
+        {
+          "localRoot": "${workspaceFolder}/language",
+          "remoteRoot": "${workspaceFolder}/language"
+        }
+      ],
+      "justMyCode": false
+    }
+  ]
+}
