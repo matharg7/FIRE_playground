@@ -1,0 +1,43 @@
+program: ../bash_scripts/run_vision_st.sh
+project: DST Continual Learning 
+name: DSLoRA Gemma MetaMathQA Finetuning
+entity: ucalgary
+method: grid
+
+# grid ignores the metric for scheduling; it's only used for dashboard plots.
+metric:
+  goal: minimize
+  name: train/loss
+
+parameters:
+  # Fixed.
+  model:
+    value: gemma
+  lora_rank:
+    values: [64, 128, 256, 512]
+  lr:
+    value: "2e-5"
+  epochs:
+    value: 1
+  # t_end as a fraction of total update steps (portable across dataset/batch).
+  dst_t_end:
+    value: 0.8
+  # Swept axes.
+  dst_method:
+    values: [set, rigl]
+  dst_sparsity:
+    values: [0.5, 0.75, 0.9, 0.95]
+  dst_pruning_ratio:
+    values: [0.3]
+  dst_delta_t:
+    values: [50, 100, 200]
+
+# ${args} expands to --model=qwen --lora_rank=64 ... --dst_method=<m> ..., all of
+# which run_dslora_math.sh accepts. --log-subdir is appended as a constant so
+# every trial logs to logs/qwen_metamathqa_dslora_set_rigl_sweep/<run_name>.out.
+command:
+  - bash
+  - ${program}
+  - ${args}
+  - "--log-subdir"
+  - "gemma_metamathqa_dslora_set_rigl_sweep"
