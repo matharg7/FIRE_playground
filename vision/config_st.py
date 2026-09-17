@@ -36,6 +36,17 @@ CONFIG = {
     'log_every': 1,
     'seed': 0,
     'batch_size': 256,
+
+    # ---- Data pipeline / evaluation ----
+    # Hold the whole dataset on the GPU as uint8 and index it there, instead of
+    # decoding and collating on the host every step.  Falls back to the
+    # DataLoader path automatically on CPU or for datasets it cannot handle.
+    'gpu_resident_data': True,
+    # Evaluate every N logged epochs rather than all of them; the last epoch of
+    # every chunk is always evaluated, so task boundaries are never missed.
+    'eval_every': 5,
+    # Evaluation is forward-only, so it can use a much larger batch than training.
+    'eval_batch_size': 1024,
     'disable_wandb': False,
     'wandb_project': '',          # override wandb project name (empty = auto)
 

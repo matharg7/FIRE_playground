@@ -11,6 +11,7 @@ import numpy as np
 
 from models import get_resnet18_CIFAR10, get_TinyViT_CIFAR100, get_VGG16_TinyImageNet
 from task import TASKS
+from gpu_data import build_gpu_task_data
 from dst_log_utils import ITOPTracker, get_sparsity_stats, get_current_pruning_ratio
 
 # Add the bundled sparsimony repo to sys.path once at import time.
@@ -247,7 +248,7 @@ def build_run_name(cfg, sparsifier) -> str:
     dt = getattr(getattr(sparsifier, 'scheduler', None), 'delta_t', None)
     if cfg.sparsifier in ('rigl', 'set'):
         return (
-            f"{base}_dst"
+            f"{base}_{cfg.sparsifier}"
             f"_sparsity_{cfg.sparsity}"
             f"_pruning_ratio_{cfg.pruning_ratio}"
             f"_delta_t_{dt}"
@@ -283,6 +284,15 @@ def main(cfg):
     model = build_model(cfg).to(device)
     optimizer = get_optimizer(model, cfg)
 
+    # Upload the dataset to the accelerator once, if it will fit the fast path.
+    # gpu_data is None when it will not, and every use below falls back to the
+    # task's DataLoader methods.
+    gpu_data = build_gpu_task_data(task, device) if cfg.gpu_resident_data else None
+    # One generator drives shuffling for every chunk, so chunk orders stay
+    # decorrelated the way a single DataLoader RNG stream would keep them.
+    shuffle_gen = torch.Generator(device=device)
+    shuffle_gen.manual_seed(cfg.seed)
+
     chunk_steps = compute_gradient_steps_per_chunk(cfg, task)
     # init DDP AFTER reparametrization if using distributed training
     sparsifier = build_sparsifier(cfg, model, optimizer, chunk_steps)
@@ -313,7 +323,14 @@ def main(cfg):
         else:
             log_every = cfg.log_every
 
-        trainloader = task.set_level(i_iter, batch_size=cfg.batch_size)
+        if gpu_data is not None:
+            # set_level() only records the level and builds a DataLoader we do
+            # not need; keep the level in sync for anything else reading it.
+            task.level = i_iter
+            trainloader = gpu_data.train_loader(
+                i_iter, batch_size=cfg.batch_size, generator=shuffle_gen)
+        else:
+            trainloader = task.set_level(i_iter, batch_size=cfg.batch_size)
         real_epochs = cfg.n_epochs * log_every
         pbar = tqdm(range(real_epochs), leave=True)
 
@@ -340,6 +357,12 @@ def main(cfg):
         for epoch in pbar:
             pbar.set_description(f'Iter {i_iter} | Epoch {epoch}')
             do_logging = global_epoch % log_every == 0
+            # A full pass over the test set is the dominant non-training cost,
+            # so it runs every cfg.eval_every logged epochs.  The last epoch of
+            # a chunk always evaluates, so each task boundary is measured.
+            do_eval = do_logging and (
+                epoch % cfg.eval_every == 0 or epoch == real_epochs - 1
+            )
 
             if cfg.use_cosine_lr:
                 cosine_scheduler.step()
@@ -392,14 +415,22 @@ def main(cfg):
                 }
                 p_fix = {'acc': train_acc, 'lr': current_lr}
 
-                test_acc, _ = task.test(model, device)
-                log_dict['test/acc'] = test_acc
-                p_fix['test_acc'] = test_acc
+                if do_eval:
+                    if gpu_data is not None:
+                        test_acc = gpu_data.evaluate(model, i_iter, cfg.eval_batch_size)
+                    else:
+                        test_acc, _ = task.test(model, device)
+                    log_dict['test/acc'] = test_acc
+                    p_fix['test_acc'] = test_acc
 
-                if cfg.benchmark == 'class_incremental':
-                    acc_full, _ = task.test(model, device, full=True)
-                    log_dict['test/acc_full'] = acc_full
-                    p_fix['test_acc_full'] = acc_full
+                    if cfg.benchmark == 'class_incremental':
+                        if gpu_data is not None:
+                            acc_full = gpu_data.evaluate(
+                                model, i_iter, cfg.eval_batch_size, full=True)
+                        else:
+                            acc_full, _ = task.test(model, device, full=True)
+                        log_dict['test/acc_full'] = acc_full
+                        p_fix['test_acc_full'] = acc_full
 
                 if sparsifier is not None:
                     sparsity_stats = get_sparsity_stats(model)

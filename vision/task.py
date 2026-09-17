@@ -49,6 +49,35 @@ def get_transform(size: int, statistics):
 
     return transforms.Compose(transform)
 
+class TensorImageDataset(torch.utils.data.Dataset):
+    """In-memory uint8 image dataset that normalizes on access.
+
+    A drop-in replacement for datasets.ImageFolder for the fixed-size,
+    augmentation-free transforms used here (see get_transform): decoding
+    happens once when the cache is built instead of on every __getitem__, so
+    the input pipeline stops being the bottleneck.
+
+    Exposes .targets and .classes so Task._init_dataset chunks it unchanged,
+    and .data so gpu_data.py can upload the whole split to the accelerator.
+    """
+
+    def __init__(self, data: torch.Tensor, targets, classes, statistics):
+        self.data = data                      # uint8, (N, C, H, W)
+        self.targets = np.asarray(targets)
+        self.classes = list(classes)
+        mean, std = statistics
+        self._mean = torch.tensor(mean, dtype=torch.float32).view(-1, 1, 1)
+        self._std = torch.tensor(std, dtype=torch.float32).view(-1, 1, 1)
+
+    def __len__(self):
+        return self.data.shape[0]
+
+    def __getitem__(self, idx):
+        img = self.data[idx].to(torch.float32).div_(255)
+        img = img.sub_(self._mean).div_(self._std)
+        return img, int(self.targets[idx])
+
+
 class IndexedDataset(torch.utils.data.Dataset):
     def __init__(self, base_dataset):
         self.base_dataset = base_dataset
@@ -357,35 +386,91 @@ def create_dir(path):
         os.makedirs(path)
 
 class TinyImageNet(Task):
+    # Bumping this invalidates every existing cache file.
+    CACHE_VERSION = 1
+
     def _get_dataset(self):
         root_dir = DATA_DIR
         dataset_dir = os.path.join(root_dir, 'tiny-imagenet-200')
         train_dir = os.path.join(dataset_dir, 'train')
         val_dir = os.path.join(dataset_dir, 'val')
 
-        if not os.path.exists(train_dir) or not os.path.exists(val_dir):
-            self._download(root_dir, dataset_dir)
-
-
         train_mean, train_std = (0.4802, 0.4481, 0.3975), (0.2770, 0.2691, 0.2821)
         test_mean, test_std = (0.4802, 0.4481, 0.3975), (0.2770, 0.2691, 0.2821)
-        size = 64
-        train_transform = get_transform(
-            size=size,
-            statistics=(train_mean, train_std)
-        )
-        test_transform = get_transform(
-            size=size,
-            statistics=(test_mean, test_std)
-        )
-
-        # Load datasets
-        train_dataset = datasets.ImageFolder(root=train_dir, transform=train_transform)
-        test_dataset = datasets.ImageFolder(root=val_dir, transform=test_transform)
-
         self.train_mean, self.train_std = train_mean, train_std
         self.test_mean, self.test_std = test_mean, test_std
+
+        # Unlike CIFAR, which torchvision hands over as one in-memory array,
+        # TinyImageNet is 110k JPEGs on disk and ImageFolder re-decodes every
+        # one on every epoch -- which is what starved the GPU.  The transforms
+        # here have no random component, so a decoded image is always the same
+        # tensor: decode the corpus once into uint8 and reuse it thereafter.
+        cache_path = os.path.join(
+            root_dir, f'tiny-imagenet-200-decoded-v{self.CACHE_VERSION}.pt')
+        if not os.path.exists(cache_path):
+            if not os.path.exists(train_dir) or not os.path.exists(val_dir):
+                self._download(root_dir, dataset_dir)
+            self._build_cache(train_dir, val_dir, cache_path)
+
+        # Every entry is a tensor or a plain container, so the safe unpickler
+        # that torch.load defaults to can read it back.
+        cache = torch.load(cache_path, map_location='cpu')
+        print(f"Loaded decoded TinyImageNet from {cache_path}")
+
+        train_dataset = TensorImageDataset(
+            cache['train_data'], cache['train_targets'], cache['classes'],
+            (train_mean, train_std))
+        test_dataset = TensorImageDataset(
+            cache['test_data'], cache['test_targets'], cache['classes'],
+            (test_mean, test_std))
         return train_dataset, test_dataset
+
+    @classmethod
+    def _build_cache(cls, train_dir, val_dir, cache_path):
+        """Decode both splits to uint8 tensors and save them to ``cache_path``.
+
+        Runs once per cluster filesystem, not once per job.  Written to a
+        private temporary file and renamed into place so a job array racing on
+        a cold cache cannot read a partially written file.
+        """
+        print("Decoding TinyImageNet into a tensor cache (one-time, a few minutes)")
+        to_uint8 = transforms.PILToTensor()
+        cache = {}
+        classes = None
+
+        for split, directory in (('train', train_dir), ('test', val_dir)):
+            folder = datasets.ImageFolder(root=directory, transform=to_uint8)
+            if classes is None:
+                classes = folder.classes
+            elif folder.classes != classes:
+                raise RuntimeError(
+                    f"train and val class lists disagree under {os.path.dirname(train_dir)}; "
+                    "delete the dataset directory and let it re-download"
+                )
+            # Workers only to speed up this one-time decode; the training loop
+            # never touches a DataLoader on the GPU-resident path.
+            loader = DataLoader(
+                folder, batch_size=512, shuffle=False,
+                num_workers=min(8, os.cpu_count() or 1),
+            )
+            batches = [images for images, _ in loader]
+            cache[f'{split}_data'] = torch.cat(batches)
+            cache[f'{split}_targets'] = torch.as_tensor(folder.targets, dtype=torch.long)
+            print(f"  {split}: {tuple(cache[f'{split}_data'].shape)} uint8")
+
+        cache['classes'] = list(classes)
+
+        tmp_dir = os.path.dirname(cache_path)
+        fd, tmp_path = tempfile.mkstemp(dir=tmp_dir, suffix='.pt.partial')
+        os.close(fd)
+        try:
+            torch.save(cache, tmp_path)
+            os.replace(tmp_path, cache_path)
+        except BaseException:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            raise
+        print(f"Wrote {cache_path}")
 
     def _download(self, root_dir, dataset_dir):
         """Fetch TinyImageNet into the shared cache at ``dataset_dir``.

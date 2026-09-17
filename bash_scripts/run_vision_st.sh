@@ -13,6 +13,9 @@
 #   ./run_vision_st.sh --use-cosine-lr True --cosine-t-max-epochs 200
 #   ./run_vision_st.sh --wandb-project my_proj --log-name my_run
 #   ./run_vision_st.sh --seed 5                           # training seed (default 0)
+#   ./run_vision_st.sh --eval-every 10                    # evaluate less often
+#   ./run_vision_st.sh --eval-batch-size 2048             # eval batch (default 1024)
+#   ./run_vision_st.sh --gpu-resident-data False          # force the DataLoader path
 #
 # Flags accept `--flag value` or `--flag=value`. Output is captured to
 # <repo>/logs/<run_name>.out (or logs/<subdir>/<run_name>.out with --log-subdir).
@@ -37,6 +40,9 @@ MODEL="RESNET18"
 TASK="CIFAR10"
 BENCHMARK="continual"
 SEED="0"
+EVAL_EVERY="1"
+EVAL_BATCH_SIZE="64"
+GPU_RESIDENT_DATA="True"
 LOG_SUBDIR=""
 GPU="0"
 
@@ -85,6 +91,18 @@ while [[ $# -gt 0 ]]; do
         --benchmark=*)           BENCHMARK="${1#*=}"; shift ;;
         --seed)                  SEED="${2:?--seed needs an argument}"; shift 2 ;;
         --seed=*)                SEED="${1#*=}"; shift ;;
+        --eval-every|--eval_every)
+                                 EVAL_EVERY="${2:?--eval-every needs an argument}"; shift 2 ;;
+        --eval-every=*|--eval_every=*)
+                                 EVAL_EVERY="${1#*=}"; shift ;;
+        --eval-batch-size|--eval_batch_size)
+                                 EVAL_BATCH_SIZE="${2:?--eval-batch-size needs an argument}"; shift 2 ;;
+        --eval-batch-size=*|--eval_batch_size=*)
+                                 EVAL_BATCH_SIZE="${1#*=}"; shift ;;
+        --gpu-resident-data|--gpu_resident_data)
+                                 GPU_RESIDENT_DATA="${2:?--gpu-resident-data needs an argument}"; shift 2 ;;
+        --gpu-resident-data=*|--gpu_resident_data=*)
+                                 GPU_RESIDENT_DATA="${1#*=}"; shift ;;
         --log-subdir|--log_subdir)
                                  LOG_SUBDIR="${2:?--log-subdir needs an argument}"; shift 2 ;;
         --log-subdir=*|--log_subdir=*)
@@ -155,6 +173,8 @@ echo "Sparsifier : $SPARSIFIER"
 echo "Model/Task : $MODEL / $TASK ($BENCHMARK)"
 echo "Drop frac. : $DROP_FRACTION_SCHEDULE"
 echo "Seed       : $SEED"
+echo "Eval       : every $EVAL_EVERY logged epochs, batch $EVAL_BATCH_SIZE"
+echo "GPU data   : $GPU_RESIDENT_DATA"
 echo "LR sched.  : cosine=$USE_COSINE_LR T_max=$COSINE_T_MAX_EPOCHS eta_min=$COSINE_ETA_MIN"
 echo "Run name   : $run_name"
 echo "Log file   : $LOG_FILE"
@@ -175,4 +195,7 @@ python train_st.py \
     --cosine-T-max-epochs "$COSINE_T_MAX_EPOCHS" \
     --cosine-eta-min "$COSINE_ETA_MIN" \
     --wandb-project "$WANDB_PROJECT" \
+    --eval-every "$EVAL_EVERY" \
+    --eval-batch-size "$EVAL_BATCH_SIZE" \
+    --gpu-resident-data "$GPU_RESIDENT_DATA" \
     > "$LOG_FILE" 2>&1
