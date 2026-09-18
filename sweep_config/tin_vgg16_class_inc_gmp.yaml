@@ -1,0 +1,50 @@
+program: ../bash_scripts/run_vision_st.sh
+project: DST Continual Learning
+entity: ucalgary
+name: DST TinyImageNet-VGG16 Class Incremental sweep (GMP)
+method: grid
+
+# grid ignores the metric for scheduling; it's only used for dashboard plots.
+metric:
+  goal: maximize
+  name: test/acc
+
+parameters:
+  # Fixed.
+  task:
+    value: TinyImageNet
+  model:
+    value: VGG16
+  # 20 cumulative class chunks (5 new classes each for CIFAR100, 10 for
+  # TinyImageNet); train_st.py also logs test/acc_full over every class.
+  benchmark:
+    value: class_incremental
+  # Pinned so train_st.py's explicit wandb.init(project=...) matches this
+  # sweep's project instead of falling back to class_incremental_TinyImageNet_VGG16.
+  wandb_project:
+    value: "DST Continual Learning"
+  # Recurring cosine LR decay: cosine_T_max_epochs stays at its default 0, so
+  # T_max = real_epochs and train_st.py rebuilds the scheduler every chunk.
+  use_cosine_lr:
+    value: "True"
+  sparsifier:
+    value: gmp
+
+  # Swept axes.  GMP has no drop fraction, so drop_fraction_schedule is left at
+  # the wrapper default ('global'), which train_st.py silently ignores here.
+  # t_accel_ratio (0.2) and initial_sparsity (0.0) are not exposed by
+  # run_vision_st.sh and keep their config_st.py defaults.
+  sparsity:
+    values: [0.1, 0.3, 0.5, 0.7, 0.9]
+  num_mask_updates:
+    values: [10, 100, 1000]
+  seed:
+    values: [0, 1, 2]
+
+# 5 * 3 * 3 = 45 runs.
+command:
+  - bash
+  - ${program}
+  - ${args}
+  - "--log-subdir"
+  - "tin_vgg16_class_inc_gmp"

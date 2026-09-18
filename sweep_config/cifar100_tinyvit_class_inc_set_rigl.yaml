@@ -1,0 +1,59 @@
+program: ../bash_scripts/run_vision_st.sh
+project: DST Continual Learning
+entity: ucalgary
+name: DST CIFAR100-TinyViT Class Incremental sweep (SET + RigL)
+method: grid
+
+# grid ignores the metric for scheduling; it's only used for dashboard plots.
+metric:
+  goal: maximize
+  name: test/acc
+
+parameters:
+  # Fixed.
+  task:
+    value: CIFAR100
+  model:
+    value: TinyViT
+  # 20 cumulative class chunks (5 new classes each for CIFAR100, 10 for
+  # TinyImageNet); train_st.py also logs test/acc_full over every class.
+  benchmark:
+    value: class_incremental
+  # Pinned so train_st.py's explicit wandb.init(project=...) matches this
+  # sweep's project instead of falling back to class_incremental_CIFAR100_TinyViT.
+  wandb_project:
+    value: "DST Continual Learning"
+  # Recurring cosine LR decay: cosine_T_max_epochs stays at its default 0, so
+  # T_max = real_epochs and train_st.py rebuilds the scheduler every chunk.
+  use_cosine_lr:
+    value: "True"
+  # Drop fraction: one global cosine decay over t_end = 0.8 * total_steps.
+  # Held fixed so this sweep differs from its sample-incremental counterpart
+  # only in the benchmark; 'per_task' is a separate question.
+  drop_fraction_schedule:
+    value: global
+
+  # Swept axes.
+  sparsifier:
+    values: [set, rigl]
+  sparsity:
+    values: [0.1, 0.3, 0.5, 0.7, 0.9]
+  pruning_ratio:
+    values: [0.3, 0.7]
+  num_mask_updates:
+    values: [10, 100, 1000]
+  seed:
+    values: [0, 1, 2]
+
+# 2 * 5 * 2 * 3 * 3 = 180 runs.
+#
+# ${args} expands to --task=CIFAR100 --model=TinyViT ... --sparsifier=<m> ...,
+# all of which run_vision_st.sh accepts in its underscore spelling. --log-subdir
+# is appended as a constant so every trial logs to
+# logs/cifar100_tinyvit_class_inc_set_rigl/<run_name>.out.
+command:
+  - bash
+  - ${program}
+  - ${args}
+  - "--log-subdir"
+  - "cifar100_tinyvit_class_inc_set_rigl"
