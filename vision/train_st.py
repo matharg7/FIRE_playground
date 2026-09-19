@@ -227,11 +227,13 @@ def build_sparsifier(cfg, model, optimizer, chunk_steps):
         {"tensor_fqn": f"{fqn}.weight"} for fqn, _ in prunable if fqn not in skip
     ]
     sparsifier.prepare(model, sparse_config)
+    sparsifier.grow_init = cfg.get('grow_init', 'zero')
 
     print(
         f"[Sparsifier] {cfg.sparsifier} | sparsity={cfg.sparsity} | "
         f"total_steps={total_steps} | t_end={t_end} | delta_t={delta_t} | "
-        f"drop_fraction_schedule={cfg.drop_fraction_schedule}"
+        f"drop_fraction_schedule={cfg.drop_fraction_schedule} | "
+        f"grow_init={sparsifier.grow_init}"
     )
     return sparsifier
 
@@ -247,13 +249,17 @@ def build_run_name(cfg, sparsifier) -> str:
     # delta_t is stored on the scheduler for all non-static methods
     dt = getattr(getattr(sparsifier, 'scheduler', None), 'delta_t', None)
     if cfg.sparsifier in ('rigl', 'set'):
-        return (
+        name = (
             f"{base}_{cfg.sparsifier}"
             f"_sparsity_{cfg.sparsity}"
             f"_pruning_ratio_{cfg.pruning_ratio}"
             f"_delta_t_{dt}"
             f"_df_{cfg.drop_fraction_schedule}"
         )
+        grow_init = cfg.get('grow_init', 'zero')
+        if grow_init != 'zero':
+            name += f"_grow_{grow_init}"
+        return name
     if cfg.sparsifier == 'gmp':
         return (
             f"{base}_gmp"
@@ -271,6 +277,12 @@ def build_run_name(cfg, sparsifier) -> str:
 # ---------------------------------------------------------------------------
 
 def main(cfg):
+    if cfg.grow_init not in ('zero', 'previous'):
+        raise ValueError(f"Unknown grow_init '{cfg.grow_init}'. Choose from: zero, previous")
+    if cfg.grow_init != 'zero' and cfg.sparsifier not in ('rigl', 'set'):
+        raise ValueError(f"grow_init='{cfg.grow_init}' only applies to rigl and set, "
+                         f"which regrow weights")
+
     cfg.print()
 
     np.random.seed(cfg.seed)

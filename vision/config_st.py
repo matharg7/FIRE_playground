@@ -66,6 +66,11 @@ CONFIG = {
     #   per_task – cosine decay across each task, warmed back up at task start
     #   constant – held fixed at pruning_ratio until t_end
     'drop_fraction_schedule': 'global',   # global | per_task | constant
+    # Value a regrown weight starts with:
+    #   zero     – grown_weights_init (0)
+    #   previous – the value it had when it was last pruned (its initial
+    #              value if it was never active)
+    'grow_init': 'zero',                  # zero | previous
 
     # GMP only
     't_accel_ratio': 0.2,        # t_accel = t_accel_ratio * total_steps
