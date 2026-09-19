@@ -1,3 +1,4 @@
+import copy
 import gc
 import math
 import sys
@@ -274,6 +275,26 @@ def build_run_name(cfg, sparsifier) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Full reset
+# ---------------------------------------------------------------------------
+
+@torch.no_grad()
+def full_reset(model, init_model):
+    """Copy the initial weights and buffers back into model, as FIRE's full
+    reset does, but keep the sparsity masks: a sparse model keeps the
+    connectivity it has learned and only its weights are reset."""
+    for (name, p), (init_name, p0) in zip(model.named_parameters(),
+                                          init_model.named_parameters()):
+        assert name == init_name
+        p.data = p0.data.clone()
+    for (name, b), (init_name, b0) in zip(model.named_buffers(),
+                                          init_model.named_buffers()):
+        assert name == init_name
+        if not name.endswith('.mask'):
+            b.data = b0.data.clone()
+
+
+# ---------------------------------------------------------------------------
 # Main training loop
 # ---------------------------------------------------------------------------
 
@@ -311,6 +332,10 @@ def main(cfg):
     sparsifier = build_sparsifier(cfg, model, optimizer, chunk_steps)
     itop_tracker = ITOPTracker(sparsifier) if sparsifier is not None else None
 
+    # Initial weights for full_reset. Copied after build_sparsifier() so the
+    # parameter names match the reparametrized model.
+    init_model = copy.deepcopy(model) if cfg.full_reset else None
+
     criterion = nn.CrossEntropyLoss()
     initial_lr = 0.0
     warmup_rate = 0.1
@@ -320,7 +345,7 @@ def main(cfg):
     # same code logs online where compute nodes have internet and offline where
     # they do not (e.g. Narval; upload later with `wandb sync`). Unset WANDB_MODE
     # means online, as before.
-    suffix = '_fire' if cfg.fire else ''
+    suffix = ('_full_reset' if cfg.full_reset else '') + ('_fire' if cfg.fire else '')
     wandb.init(
         project=wandb_project,
         name=f"{build_run_name(cfg, sparsifier)}{suffix}_seed{cfg.seed}",
@@ -367,6 +392,10 @@ def main(cfg):
                 sparsifier.scheduler.t_end = chunk_steps[i_iter]
             if hasattr(sparsifier, 'zero_inactive_param_momentum_buffers'):
                 sparsifier.zero_inactive_param_momentum_buffers()
+
+        if cfg.full_reset and i_iter > 0:
+            full_reset(model, init_model)
+            print(f"[full reset] task {i_iter}: weights set back to their initial values")
 
         # FIRE at every task boundary, after the new optimizer is created (the
         # same place as in FIRE's train.py). Only weights change, not the mask.
