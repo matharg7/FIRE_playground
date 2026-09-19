@@ -12,6 +12,7 @@ import numpy as np
 from models import get_resnet18_CIFAR10, get_TinyViT_CIFAR100, get_VGG16_TinyImageNet
 from task import TASKS
 from gpu_data import build_gpu_task_data
+from interventions.fire_sparse import fire_sparse
 from dst_log_utils import ITOPTracker, get_sparsity_stats, get_current_pruning_ratio
 
 # Add the bundled sparsimony repo to sys.path once at import time.
@@ -319,9 +320,10 @@ def main(cfg):
     # same code logs online where compute nodes have internet and offline where
     # they do not (e.g. Narval; upload later with `wandb sync`). Unset WANDB_MODE
     # means online, as before.
+    suffix = '_fire' if cfg.fire else ''
     wandb.init(
         project=wandb_project,
-        name=f"{build_run_name(cfg, sparsifier)}_seed{cfg.seed}",
+        name=f"{build_run_name(cfg, sparsifier)}{suffix}_seed{cfg.seed}",
         config=cfg.__dict__,
         mode="disabled" if cfg.disable_wandb else None,
     )
@@ -365,6 +367,13 @@ def main(cfg):
                 sparsifier.scheduler.t_end = chunk_steps[i_iter]
             if hasattr(sparsifier, 'zero_inactive_param_momentum_buffers'):
                 sparsifier.zero_inactive_param_momentum_buffers()
+
+        # FIRE at every task boundary, after the new optimizer is created (the
+        # same place as in FIRE's train.py). Only weights change, not the mask.
+        if cfg.fire and i_iter > 0:
+            n = fire_sparse(model, iteration=cfg.fire_iter_num,
+                            is_vit=(cfg.model == 'TinyViT'))
+            print(f"[FIRE] task {i_iter}: {n} weight matrices orthogonalized")
 
         for epoch in pbar:
             pbar.set_description(f'Iter {i_iter} | Epoch {epoch}')
