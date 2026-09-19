@@ -66,11 +66,25 @@ CONFIG = {
     #   per_task – cosine decay across each task, warmed back up at task start
     #   constant – held fixed at pruning_ratio until t_end
     'drop_fraction_schedule': 'global',   # global | per_task | constant
+    # Value a regrown weight starts with:
+    #   zero     – grown_weights_init (0)
+    #   previous – the value it had when it was last pruned (its initial
+    #              value if it was never active)
+    'grow_init': 'zero',                  # zero | previous
 
     # GMP only
     't_accel_ratio': 0.2,        # t_accel = t_accel_ratio * total_steps
     'initial_sparsity': 0.0,     # sparsity at step 0 (dense start)
     
+    # ---- Task-boundary interventions ----
+    # fire: apply FIRE at every task boundary (only to_q / to_k for TinyViT,
+    #   as in FIRE). Sparse runs keep their mask; see interventions/fire_sparse.py.
+    'fire': False,
+    'fire_iter_num': 10,         # Newton-Schulz iterations
+    # full_reset: at every task boundary, set all weights back to their initial
+    #   values. Sparse runs keep the mask they have learned.
+    'full_reset': False,
+
     # ---- LR Scheduler ----
     'use_cosine_lr': False,        # True → CosineAnnealingLR; False → warmup+target_lr
     'cosine_T_max_epochs': 0,      # T_max for CosineAnnealingLR (0 = use real_epochs per chunk)

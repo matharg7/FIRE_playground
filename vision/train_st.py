@@ -1,3 +1,4 @@
+import copy
 import gc
 import math
 import sys
@@ -12,6 +13,7 @@ import numpy as np
 from models import get_resnet18_CIFAR10, get_TinyViT_CIFAR100, get_VGG16_TinyImageNet
 from task import TASKS
 from gpu_data import build_gpu_task_data
+from interventions.fire_sparse import fire_sparse
 from dst_log_utils import ITOPTracker, get_sparsity_stats, get_current_pruning_ratio
 
 # Add the bundled sparsimony repo to sys.path once at import time.
@@ -227,11 +229,13 @@ def build_sparsifier(cfg, model, optimizer, chunk_steps):
         {"tensor_fqn": f"{fqn}.weight"} for fqn, _ in prunable if fqn not in skip
     ]
     sparsifier.prepare(model, sparse_config)
+    sparsifier.grow_init = cfg.get('grow_init', 'zero')
 
     print(
         f"[Sparsifier] {cfg.sparsifier} | sparsity={cfg.sparsity} | "
         f"total_steps={total_steps} | t_end={t_end} | delta_t={delta_t} | "
-        f"drop_fraction_schedule={cfg.drop_fraction_schedule}"
+        f"drop_fraction_schedule={cfg.drop_fraction_schedule} | "
+        f"grow_init={sparsifier.grow_init}"
     )
     return sparsifier
 
@@ -247,13 +251,17 @@ def build_run_name(cfg, sparsifier) -> str:
     # delta_t is stored on the scheduler for all non-static methods
     dt = getattr(getattr(sparsifier, 'scheduler', None), 'delta_t', None)
     if cfg.sparsifier in ('rigl', 'set'):
-        return (
+        name = (
             f"{base}_{cfg.sparsifier}"
             f"_sparsity_{cfg.sparsity}"
             f"_pruning_ratio_{cfg.pruning_ratio}"
             f"_delta_t_{dt}"
             f"_df_{cfg.drop_fraction_schedule}"
         )
+        grow_init = cfg.get('grow_init', 'zero')
+        if grow_init != 'zero':
+            name += f"_grow_{grow_init}"
+        return name
     if cfg.sparsifier == 'gmp':
         return (
             f"{base}_gmp"
@@ -267,10 +275,36 @@ def build_run_name(cfg, sparsifier) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Full reset
+# ---------------------------------------------------------------------------
+
+@torch.no_grad()
+def full_reset(model, init_model):
+    """Copy the initial weights and buffers back into model, as FIRE's full
+    reset does, but keep the sparsity masks: a sparse model keeps the
+    connectivity it has learned and only its weights are reset."""
+    for (name, p), (init_name, p0) in zip(model.named_parameters(),
+                                          init_model.named_parameters()):
+        assert name == init_name
+        p.data = p0.data.clone()
+    for (name, b), (init_name, b0) in zip(model.named_buffers(),
+                                          init_model.named_buffers()):
+        assert name == init_name
+        if not name.endswith('.mask'):
+            b.data = b0.data.clone()
+
+
+# ---------------------------------------------------------------------------
 # Main training loop
 # ---------------------------------------------------------------------------
 
 def main(cfg):
+    if cfg.grow_init not in ('zero', 'previous'):
+        raise ValueError(f"Unknown grow_init '{cfg.grow_init}'. Choose from: zero, previous")
+    if cfg.grow_init != 'zero' and cfg.sparsifier not in ('rigl', 'set'):
+        raise ValueError(f"grow_init='{cfg.grow_init}' only applies to rigl and set, "
+                         f"which regrow weights")
+
     cfg.print()
 
     np.random.seed(cfg.seed)
@@ -298,6 +332,10 @@ def main(cfg):
     sparsifier = build_sparsifier(cfg, model, optimizer, chunk_steps)
     itop_tracker = ITOPTracker(sparsifier) if sparsifier is not None else None
 
+    # Initial weights for full_reset. Copied after build_sparsifier() so the
+    # parameter names match the reparametrized model.
+    init_model = copy.deepcopy(model) if cfg.full_reset else None
+
     criterion = nn.CrossEntropyLoss()
     initial_lr = 0.0
     warmup_rate = 0.1
@@ -307,9 +345,10 @@ def main(cfg):
     # same code logs online where compute nodes have internet and offline where
     # they do not (e.g. Narval; upload later with `wandb sync`). Unset WANDB_MODE
     # means online, as before.
+    suffix = ('_full_reset' if cfg.full_reset else '') + ('_fire' if cfg.fire else '')
     wandb.init(
         project=wandb_project,
-        name=f"{build_run_name(cfg, sparsifier)}_seed{cfg.seed}",
+        name=f"{build_run_name(cfg, sparsifier)}{suffix}_seed{cfg.seed}",
         config=cfg.__dict__,
         mode="disabled" if cfg.disable_wandb else None,
     )
@@ -353,6 +392,17 @@ def main(cfg):
                 sparsifier.scheduler.t_end = chunk_steps[i_iter]
             if hasattr(sparsifier, 'zero_inactive_param_momentum_buffers'):
                 sparsifier.zero_inactive_param_momentum_buffers()
+
+        if cfg.full_reset and i_iter > 0:
+            full_reset(model, init_model)
+            print(f"[full reset] task {i_iter}: weights set back to their initial values")
+
+        # FIRE at every task boundary, after the new optimizer is created (the
+        # same place as in FIRE's train.py). Only weights change, not the mask.
+        if cfg.fire and i_iter > 0:
+            n = fire_sparse(model, iteration=cfg.fire_iter_num,
+                            is_vit=(cfg.model == 'TinyViT'))
+            print(f"[FIRE] task {i_iter}: {n} weight matrices orthogonalized")
 
         for epoch in pbar:
             pbar.set_description(f'Iter {i_iter} | Epoch {epoch}')
