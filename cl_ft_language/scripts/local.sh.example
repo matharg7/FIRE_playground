@@ -1,0 +1,14 @@
+# Copy to local.sh (gitignored) and edit. Everything here is optional.
+
+# Scheduler account, if your site requires one:
+# TRACE_ACCOUNT=def-yourpi
+
+# W&B mode. Defaults to offline on Alliance clusters (no internet on compute
+# nodes) and online elsewhere:
+# TRACE_WANDB_MODE=offline        # offline | online | disabled
+
+# Scratch root shared with the language runs. Defaults to $SCRATCH/fire:
+# TRACE_WORK=/fast/scratch/$USER/fire
+
+# Override the modules your cluster needs:
+# TRACE_MODULES="StdEnv/2023 python/3.11.5 scipy-stack/2026a arrow/24.0.0 cuda/12.6"
