@@ -123,6 +123,16 @@ class Task(ABC):
 
         self._init_dataset(make_test_loader, access, test_access, chunk_size, test_chunk_size, warm_start_subset_ratio=warm_start_subset_ratio)
 
+    @classmethod
+    def download(cls):
+        """Fetch this task's raw data into DATA_DIR, skipping work already done.
+
+        Split out from _get_dataset because it is the one step that needs
+        internet: compute nodes may have none, so it runs from a login node
+        ahead of any job.  Safe to re-run.
+        """
+        raise NotImplementedError(f"{cls.__name__} has no download step")
+
     @abstractmethod
     def _get_dataset(self):
         pass
@@ -346,6 +356,12 @@ class CIFAR10(Task):
         self.test_mean, self.test_std = test_mean, test_std
         return train_dataset, test_dataset
 
+    @classmethod
+    def download(cls):
+        for train in (True, False):
+            datasets.CIFAR10(root=DATA_DIR, train=train, download=True)
+        print(f"CIFAR10 ready in {DATA_DIR}")
+
 
     @property
     def shape(self):
@@ -375,6 +391,12 @@ class CIFAR100(Task):
         self.test_mean, self.test_std = test_mean, test_std
         return train_dataset, test_dataset
 
+    @classmethod
+    def download(cls):
+        for train in (True, False):
+            datasets.CIFAR100(root=DATA_DIR, train=train, download=True)
+        print(f"CIFAR100 ready in {DATA_DIR}")
+
     @property
     def shape(self):
         return [3, 32, 32]
@@ -388,6 +410,16 @@ def create_dir(path):
 class TinyImageNet(Task):
     # Bumping this invalidates every existing cache file.
     CACHE_VERSION = 1
+
+    @classmethod
+    def download(cls):
+        dataset_dir = os.path.join(DATA_DIR, 'tiny-imagenet-200')
+        train_dir = os.path.join(dataset_dir, 'train')
+        val_dir = os.path.join(dataset_dir, 'val')
+        if os.path.exists(train_dir) and os.path.exists(val_dir):
+            print(f"TinyImageNet ready in {DATA_DIR}")
+            return
+        cls._download(DATA_DIR, dataset_dir)
 
     def _get_dataset(self):
         root_dir = DATA_DIR
@@ -472,7 +504,8 @@ class TinyImageNet(Task):
             raise
         print(f"Wrote {cache_path}")
 
-    def _download(self, root_dir, dataset_dir):
+    @classmethod
+    def _download(cls, root_dir, dataset_dir):
         """Fetch TinyImageNet into the shared cache at ``dataset_dir``.
 
         The archive is unpacked into a private staging directory and only then
@@ -498,7 +531,7 @@ class TinyImageNet(Task):
                 zip_ref.extractall(staging)
             extracted = os.path.join(staging, 'tiny-imagenet-200')
             # Separate validation images into per-class sub-folders
-            self._organize_val_dir(staging, os.path.join(extracted, 'val'))
+            cls._organize_val_dir(staging, os.path.join(extracted, 'val'))
             try:
                 os.rename(extracted, dataset_dir)
             except OSError:
@@ -509,7 +542,8 @@ class TinyImageNet(Task):
             shutil.rmtree(staging, ignore_errors=True)
         print(f"TinyImageNet dataset ready at {dataset_dir}")
 
-    def _organize_val_dir(self, root_dir, val_dir):
+    @classmethod
+    def _organize_val_dir(cls, root_dir, val_dir):
         # Organize validation directory
         val_annotations_file = os.path.join(root_dir, 'tiny-imagenet-200', 'val', 'val_annotations.txt')
         val_images_dir = os.path.join(root_dir, 'tiny-imagenet-200', 'val', 'images')

@@ -127,6 +127,11 @@ def build_sparsifier(cfg, model, optimizer, chunk_steps):
                      global value so the mask-update cadence is unchanged.
         'constant' – held at cfg.pruning_ratio until t_end (global horizon)
     """
+    if cfg.get('use_cl_dst', False):
+        # CL-DST brings its own masking engine (cl-dst/core.py); build_cl_dst
+        # validates the config and nothing from sparsimony is used.
+        return None
+
     if cfg.drop_fraction_schedule not in ('global', 'per_task', 'constant'):
         raise ValueError(
             f"Unknown drop_fraction_schedule '{cfg.drop_fraction_schedule}'. "
@@ -236,12 +241,35 @@ def build_sparsifier(cfg, model, optimizer, chunk_steps):
     return sparsifier
 
 
+def build_cl_dst(cfg, model, chunk_steps, device):
+    """Create the CL-DST baseline, or None when cfg.use_cl_dst is False.
+
+    CL-DST (cl-dst/) adds parameter isolation on top of a DST method: the mask
+    is resampled per chunk, every weight an earlier chunk's mask claimed has its
+    gradient zeroed, and the weights the current mask excludes are merged back
+    at the chunk boundary.  cfg.sparsifier picks the DST criteria:
+
+        'rigl' -> --init ERK     --death magnitude --growth gradient
+        'set'  -> --init uniform --death magnitude --growth random
+    """
+    if not cfg.get('use_cl_dst', False):
+        return None
+    from cl_dst import CLDST
+    return CLDST(model, cfg, chunk_steps, device)
+
+
 # ---------------------------------------------------------------------------
 # W&B run-name builder
 # ---------------------------------------------------------------------------
 
 def build_run_name(cfg, sparsifier) -> str:
     base = f"{cfg.model}_{cfg.task}"
+    if cfg.get('use_cl_dst', False):
+        return (
+            f"{base}_cldst_{cfg.sparsifier}"
+            f"_sparsity_{cfg.sparsity}"
+            f"_death_rate_{cfg.pruning_ratio}"
+        )
     if cfg.sparsifier == 'dense':
         return f"{base}_dense"
     # delta_t is stored on the scheduler for all non-static methods
@@ -297,6 +325,7 @@ def main(cfg):
     # init DDP AFTER reparametrization if using distributed training
     sparsifier = build_sparsifier(cfg, model, optimizer, chunk_steps)
     itop_tracker = ITOPTracker(sparsifier) if sparsifier is not None else None
+    cl_dst = build_cl_dst(cfg, model, chunk_steps, device)
 
     criterion = nn.CrossEntropyLoss()
     initial_lr = 0.0
@@ -335,11 +364,15 @@ def main(cfg):
         pbar = tqdm(range(real_epochs), leave=True)
 
         # Reset optimizer at every iteration; hand the new instance to sparsifier
-        optimizer = get_optimizer(model, cfg)
+        if cl_dst is not None:
+            # cl-dst rebuilds optimizer, LR schedule and mask at every task.
+            optimizer = cl_dst.start_chunk(i_iter, real_epochs)
+        else:
+            optimizer = get_optimizer(model, cfg)
         target_lr = [pg['lr'] for pg in optimizer.param_groups]
 
-        # Create the LR scheduler for this chunk
-        if cfg.use_cosine_lr:
+        # Create the LR scheduler for this chunk (cl-dst brings its own)
+        if cfg.use_cosine_lr and cl_dst is None:
             T_max = cfg.cosine_T_max_epochs if cfg.cosine_T_max_epochs > 0 else real_epochs
             cosine_scheduler = CosineAnnealingLR(optimizer, T_max=T_max, eta_min=cfg.cosine_eta_min)
 
@@ -364,7 +397,9 @@ def main(cfg):
                 epoch % cfg.eval_every == 0 or epoch == real_epochs - 1
             )
 
-            if cfg.use_cosine_lr:
+            if cl_dst is not None:
+                current_lr = optimizer.param_groups[0]['lr']
+            elif cfg.use_cosine_lr:
                 cosine_scheduler.step()
                 current_lr = optimizer.param_groups[0]['lr']
             else:
@@ -393,13 +428,21 @@ def main(cfg):
                 optimizer.zero_grad()
                 loss.backward()
 
+                if cl_dst is not None:
+                    # Before clipping, so the norm ignores gradients that are
+                    # about to be discarded.
+                    cl_dst.freeze_grads()
+
                 if cfg.clip_grad_norm > 0:
                     nn.utils.clip_grad_norm_(model.parameters(), cfg.clip_grad_norm)
 
-                optimizer.step()
-                if sparsifier is not None:
-                    if sparsifier.step():
-                        itop_tracker.update()
+                if cl_dst is not None:
+                    cl_dst.step()  # Masking.step() calls optimizer.step() itself
+                else:
+                    optimizer.step()
+                    if sparsifier is not None:
+                        if sparsifier.step():
+                            itop_tracker.update()
 
             train_acc = correct / total
 
@@ -432,7 +475,9 @@ def main(cfg):
                         log_dict['test/acc_full'] = acc_full
                         p_fix['test_acc_full'] = acc_full
 
-                if sparsifier is not None:
+                if cl_dst is not None:
+                    log_dict.update(cl_dst.stats())
+                elif sparsifier is not None:
                     sparsity_stats = get_sparsity_stats(model)
                     log_dict['dst/mask_sparsity']  = sparsity_stats['mask_sparsity']
                     log_dict['dst/weight_sparsity'] = sparsity_stats['weight_sparsity']
@@ -444,7 +489,14 @@ def main(cfg):
                 wandb.log(log_dict, step=global_step)
                 pbar.set_postfix(**p_fix)
 
+            if cl_dst is not None:
+                cl_dst.lr_step()  # cl-dst steps MultiStepLR after each epoch
+
             global_epoch += 1
+
+        if cl_dst is not None:
+            # Merge back what this chunk's mask zeroed, after the final eval.
+            cl_dst.end_chunk()
 
         del trainloader
         torch.cuda.empty_cache()

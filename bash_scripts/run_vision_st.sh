@@ -6,6 +6,8 @@
 #   ./run_vision_st.sh                                  # dense baseline (config defaults)
 #   ./run_vision_st.sh --sparsifier rigl                # one sparse run
 #   ./run_vision_st.sh --sparsifier set --sparsity 0.95 --pruning-ratio 0.5
+#   ./run_vision_st.sh --sparsifier set --use-cl-dst True   # CL-DST baseline
+#       (rigl|set only; uses cl-dst's own LR and drop-fraction schedules)
 #   ./run_vision_st.sh --model TinyViT --task CIFAR100  # different arch/dataset
 #   ./run_vision_st.sh --log-subdir sweep1 --gpu 1      # nest log, pick GPU
 #   ./run_vision_st.sh --drop-fraction-schedule per_task   # RigL/SET df schedule
@@ -31,6 +33,7 @@ SPARSITY="0.9"
 PRUNING_RATIO="0.3"
 NUM_MASK_UPDATES="500"
 DROP_FRACTION_SCHEDULE="global"
+USE_CL_DST="False"
 USE_COSINE_LR="False"
 COSINE_T_MAX_EPOCHS="0"
 COSINE_ETA_MIN="0.0"
@@ -64,6 +67,10 @@ while [[ $# -gt 0 ]]; do
                                  DROP_FRACTION_SCHEDULE="${2:?--drop-fraction-schedule needs an argument}"; shift 2 ;;
         --drop-fraction-schedule=*|--drop_fraction_schedule=*)
                                  DROP_FRACTION_SCHEDULE="${1#*=}"; shift ;;
+        --use-cl-dst|--use_cl_dst)
+                                 USE_CL_DST="${2:?--use-cl-dst needs an argument}"; shift 2 ;;
+        --use-cl-dst=*|--use_cl_dst=*)
+                                 USE_CL_DST="${1#*=}"; shift ;;
         --use-cosine-lr|--use_cosine_lr)
                                  USE_COSINE_LR="${2:?--use-cosine-lr needs an argument}"; shift 2 ;;
         --use-cosine-lr=*|--use_cosine_lr=*)
@@ -109,7 +116,7 @@ while [[ $# -gt 0 ]]; do
                                  LOG_SUBDIR="${1#*=}"; shift ;;
         --gpu)                   GPU="${2:?--gpu needs an argument}"; shift 2 ;;
         --gpu=*)                 GPU="${1#*=}"; shift ;;
-        -h|--help)               sed -n '4,18p' "${BASH_SOURCE[0]}"; exit 0 ;;
+        -h|--help)               sed -n '4,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *)                       echo "ERROR: unknown option: $1" >&2; exit 1 ;;
     esac
 done
@@ -150,6 +157,13 @@ case "$SPARSIFIER" in
     *)      run_name="${MODEL}_${TASK}_${SPARSIFIER}_s${SPARSITY}_pr${PRUNING_RATIO}_nmu${NUM_MASK_UPDATES}_df${DROP_FRACTION_SCHEDULE}" ;;
 esac
 
+# CL-DST reuses the sparsifier flags, so tag its logs to keep them apart.  It
+# brings cl-dst's own LR and drop-fraction schedules, so strip the _df suffix:
+# --drop-fraction-schedule and --use-cosine-lr do not apply to these runs.
+case "$USE_CL_DST" in
+    True|true|t|y|yes|1) run_name="cldst_${run_name%_df*}" ;;
+esac
+
 # Keep cosine-LR and warmup-LR runs of the same config in separate log files.
 case "$USE_COSINE_LR" in
     True|true|t|y|yes|1)
@@ -172,6 +186,7 @@ LOG_FILE="${LOGDIR}/${run_name}.out"
 echo "Sparsifier : $SPARSIFIER"
 echo "Model/Task : $MODEL / $TASK ($BENCHMARK)"
 echo "Drop frac. : $DROP_FRACTION_SCHEDULE"
+echo "CL-DST     : $USE_CL_DST"
 echo "Seed       : $SEED"
 echo "Eval       : every $EVAL_EVERY logged epochs, batch $EVAL_BATCH_SIZE"
 echo "GPU data   : $GPU_RESIDENT_DATA"
@@ -191,6 +206,7 @@ python train_st.py \
     --pruning-ratio "$PRUNING_RATIO" \
     --num-mask-updates "$NUM_MASK_UPDATES" \
     --drop-fraction-schedule "$DROP_FRACTION_SCHEDULE" \
+    --use-cl-dst "$USE_CL_DST" \
     --use-cosine-lr "$USE_COSINE_LR" \
     --cosine-T-max-epochs "$COSINE_T_MAX_EPOCHS" \
     --cosine-eta-min "$COSINE_ETA_MIN" \

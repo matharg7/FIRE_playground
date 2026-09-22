@@ -54,6 +54,12 @@ CONFIG = {
     # Which algorithm to use.  'dense' runs without any sparsifier (baseline).
     'sparsifier': 'dense',       # dense | rigl | set | gmp | static
 
+    # CL-DST baseline: run the sparsifier through cl-dst's Masking engine and
+    # add its parameter isolation (per-chunk mask, frozen used weights,
+    # end-of-chunk merge).  Requires sparsifier in (rigl, set) and
+    # drop_fraction_schedule in (per_task, global).
+    'use_cl_dst': False,
+
     # Shared sparse params
     'sparsity': 0.9,             # target sparsity for all sparse methods
     'num_mask_updates': 500,     # delta_t = total_steps // num_mask_updates
