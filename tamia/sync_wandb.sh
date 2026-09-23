@@ -5,12 +5,16 @@
 #   tamia/sync_wandb.sh tin_vgg16_class_inc_set_rigl
 #   tamia/sync_wandb.sh <sweep> --dry-run          # list what would be uploaded
 #   tamia/sync_wandb.sh <sweep> --batch 10         # smaller chunks
-#   tamia/sync_wandb.sh --all                      # every sweep under $SCRATCH/wandb
+#   tamia/sync_wandb.sh --all                      # every sweep on disk
 #
 # tamIA compute nodes cannot reach api.wandb.ai, so training runs with
 # WANDB_MODE=offline and writes complete run records to
 #
-#     $SCRATCH/wandb/<sweep>/wandb/offline-run-<timestamp>-<id>/
+#     $FIRE_WANDB_ROOT/<sweep>/wandb/offline-run-<timestamp>-<id>/
+#
+# which env.sh puts inside the repo (wandb_offline/). Sweeps that ran before
+# that lived under $SCRATCH/wandb/<sweep>/wandb/, and both are still searched,
+# so an older backlog uploads without moving anything.
 #
 # `wandb sync` replays those records to the server. It is idempotent: a synced
 # run gets a *.wandb.synced marker and is skipped here on later passes, so
@@ -48,7 +52,8 @@ done
 if [[ -z "$SWEEP" && "$ALL" != "true" ]]; then
     echo "ERROR: give a sweep name, or --all." >&2
     echo "Available offline run directories:" >&2
-    ls -1 "${SCRATCH:?SCRATCH is not set}/wandb" 2>/dev/null | sed 's/^/  /' >&2 || true
+    ls -1 "${FIRE_WANDB_ROOT:-$REPO_ROOT/wandb_offline}" "${SCRATCH:-}/wandb" 2>/dev/null \
+        | sed 's/^/  /' >&2 || true
     exit 1
 fi
 
@@ -75,31 +80,44 @@ if [[ ! -f "$HOME/.wandb_token" ]]; then
 fi
 export WANDB_API_KEY="$(cat "$HOME/.wandb_token")"
 
+# Every directory a sweep's runs may be in: the in-repo one env.sh points
+# WANDB_DIR at, and the scratch path used before that. Only those that exist.
+sweep_roots() {
+    local sweep="$1" r
+    for r in "$FIRE_WANDB_ROOT/$sweep/wandb" "${SCRATCH:-}/wandb/$sweep/wandb"; do
+        [[ -d "$r" ]] && echo "$r"
+    done
+    return 0
+}
+
 sync_one_sweep() {
     local sweep="$1"
-    local root="$SCRATCH/wandb/$sweep/wandb"
+    local roots=() r
+    while IFS= read -r r; do roots+=("$r"); done < <(sweep_roots "$sweep")
 
-    if [[ ! -d "$root" ]]; then
-        echo "-- $sweep: no offline runs at $root (nothing ran yet?)"
+    if [[ ${#roots[@]} -eq 0 ]]; then
+        echo "-- $sweep: no offline runs at $FIRE_WANDB_ROOT/$sweep/wandb (nothing ran yet?)"
         return 0
     fi
 
     # Collect unsynced offline runs. wandb drops a *.wandb.synced file inside a
     # run directory once it has been uploaded, which is what makes this
     # re-runnable without duplicating runs in the project.
-    local pending=() d
+    local pending=() total=0 d
     while IFS= read -r -d '' d; do
+        total=$(( total + 1 ))
         if compgen -G "$d/*.wandb.synced" >/dev/null; then
             continue
         fi
         pending+=("$d")
-    done < <(find "$root" -maxdepth 1 -type d -name 'offline-run-*' -print0 | sort -z)
+    done < <(find "${roots[@]}" -maxdepth 1 -type d -name 'offline-run-*' -print0 | sort -z)
 
-    local total synced
-    total="$(find "$root" -maxdepth 1 -type d -name 'offline-run-*' | wc -l)"
-    synced=$(( total - ${#pending[@]} ))
+    local synced=$(( total - ${#pending[@]} ))
 
     echo "== $sweep: $total offline run(s), $synced already synced, ${#pending[@]} to upload"
+    if [[ ${#roots[@]} -gt 1 ]]; then
+        printf '   (searched: %s)\n' "${roots[*]}"
+    fi
     if [[ ${#pending[@]} -eq 0 ]]; then
         return 0
     fi
@@ -130,14 +148,19 @@ status=0
 if [[ "$ALL" == "true" ]]; then
     shopt -s nullglob
     found="false"
-    for d in "$SCRATCH"/wandb/*/; do
+    declare -A seen=()
+    for d in "$FIRE_WANDB_ROOT"/*/ "${SCRATCH:-}"/wandb/*/; do
         name="$(basename "$d")"
         # Skip the shared cache/artifact/config directories env.sh creates.
         case "$name" in cache|artifacts|config) continue ;; esac
+        # A sweep present in both roots is one sweep; sync_one_sweep sees both.
+        [[ -n "${seen[$name]:-}" ]] && continue
+        seen["$name"]=1
         found="true"
         sync_one_sweep "$name" || status=1
     done
-    [[ "$found" == "true" ]] || echo "No sweep directories under $SCRATCH/wandb."
+    [[ "$found" == "true" ]] \
+        || echo "No sweep directories under $FIRE_WANDB_ROOT or ${SCRATCH:-}/wandb."
 else
     sync_one_sweep "$SWEEP" || status=1
 fi

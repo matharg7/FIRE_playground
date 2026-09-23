@@ -82,7 +82,8 @@ if [[ "$RESET" == "true" ]]; then
     echo "    $STATE"
     echo "Every trial will be re-run on the next submission. Offline W&B runs"
     echo "already on disk are NOT deleted, so re-running produces duplicates in"
-    echo "the project unless you also clear \$SCRATCH/wandb/$SWEEP."
+    echo "the project unless you also clear \$FIRE_WANDB_ROOT/$SWEEP"
+    echo "(by default $REPO_ROOT/wandb_offline/$SWEEP)."
     read -r -p "Type the sweep name to confirm: " reply
     if [[ "$reply" != "$SWEEP" ]]; then
         echo "Not confirmed; nothing was deleted."

@@ -97,6 +97,17 @@ export FIRE_DATA_DIR="${FIRE_DATA_DIR:-$SCRATCH/datasets}"
 # hundreds of tiny files, and /project is inode-limited.
 export FIRE_STATE_ROOT="${FIRE_STATE_ROOT:-$SCRATCH/fire-tamia/state}"
 
+# --- Where the offline W&B runs go --------------------------------------------
+# Their own top-level directory inside the repo, one sub-directory per sweep, so
+# a sweep's logs sit beside the code that produced them and survive the periodic
+# $SCRATCH purge. The claim/done markers above deliberately do NOT move here --
+# those are thousands of empty files, which is what /project's inode quota
+# minds, while a sweep's runs are a few thousand real ones.
+#
+# Override it to keep them on scratch after all:
+#     export FIRE_WANDB_ROOT=$SCRATCH/wandb
+export FIRE_WANDB_ROOT="${FIRE_WANDB_ROOT:-$FIRE_REPO_ROOT/wandb_offline}"
+
 # --- Offline W&B --------------------------------------------------------------
 # Only configured when a sweep name is given, so that sourcing this file for an
 # interactive poke-around does not silently force offline mode on a login node
@@ -109,8 +120,10 @@ if [[ -n "$_fire_sweep" ]]; then
 
     # One directory per sweep so sync_wandb.sh can scope an upload to one sweep.
     # wandb appends its own "wandb/" component, so runs land in
-    #   $SCRATCH/wandb/<sweep>/wandb/offline-run-<timestamp>-<id>/
-    export WANDB_DIR="${WANDB_DIR:-$SCRATCH/wandb/$_fire_sweep}"
+    #   $FIRE_WANDB_ROOT/<sweep>/wandb/offline-run-<timestamp>-<id>/
+    export WANDB_DIR="${WANDB_DIR:-$FIRE_WANDB_ROOT/$_fire_sweep}"
+    # Cache, artifacts and config stay on scratch: regenerable working files
+    # rather than run records, and the cache can grow large.
     export WANDB_CACHE_DIR="${WANDB_CACHE_DIR:-$SCRATCH/wandb/cache}"
     export WANDB_ARTIFACT_DIR="${WANDB_ARTIFACT_DIR:-$SCRATCH/wandb/artifacts}"
     export WANDB_CONFIG_DIR="${WANDB_CONFIG_DIR:-$SCRATCH/wandb/config}"

@@ -44,6 +44,14 @@ tamia/sync_wandb.sh <sweep>                          # LOGIN node: upload offlin
 
 Sweep names are the `sweep_config/*.yaml` basenames, e.g. `tin_vgg16_class_inc_gmp`.
 
+Three sets of logs, all inside the repo:
+
+| | |
+|---|---|
+| `wandb_offline/<sweep>/wandb/` | the offline W&B runs, uploaded by `sync_wandb.sh` |
+| `logs/<log-subdir>/<run>.out` | one trial's stdout (`--log-subdir` in the sweep YAML) |
+| `slurm_logs/tamia_<name>_<jobid>_<task>.out` | one array task, all its slots interleaved |
+
 ---
 
 ## 1. One-time setup
@@ -241,6 +249,42 @@ The tamIA portal at <https://portail.tamia.ecpia.ca/> shows live CPU/GPU utilisa
 per job — worth a look on the first real sweep to confirm the node is actually full
 and to sanity-check `--trials-per-gpu`.
 
+### 3.6 Worked example: exactly one trial per GPU
+
+The default packs 2 trials onto a GPU and lets each slot work through several in
+turn. The opposite arrangement — one trial per GPU, one round, the whole sweep
+running at once — is two submissions, sized so the slots add up to the trial count:
+
+```sh
+# 180 trials = 22 H200 nodes x 8 GPUs (176) + 1 H100 node x 4 GPUs (4)
+tamia/submit.sh tin_vgg16_sample_inc_set_rigl \
+    --gpu-type h200 --nodes 22 --trials-per-gpu 1 \
+    --time 4:20:00 --trial-budget 240 --job-name tin_vgg16_sample_inc_set_rigl_h200
+
+tamia/submit.sh tin_vgg16_sample_inc_set_rigl \
+    --gpu-type h100 --nodes 1 --trials-per-gpu 1 --no-expand \
+    --time 4:20:00 --trial-budget 240 --job-name tin_vgg16_sample_inc_set_rigl_h100
+```
+
+Two details make it behave:
+
+- **`--trial-budget 240` against `--time 4:20:00` (260 min)** is what holds each
+  slot to a single trial. The deadline guard will not claim a trial with less than
+  the budget left, and once one has run there never is — so a slot takes one trial
+  and stops. It still leaves 20 min of head-room at the start for modules, the venv
+  and the preflight, which a budget any closer to 260 would eat into: too close and
+  no worker claims anything and the job looks mysteriously empty.
+- **`--no-expand` on the second submission.** `expand_sweep.py` rewrites
+  `tamia/trials/<sweep>.tsv` in place, and by then the first job's workers are
+  reading it line by line. The expansion is deterministic, so there is nothing to
+  regenerate — just don't truncate the file under a running job.
+
+Order does not matter and neither does over-provisioning: the claim is atomic, so
+whichever node reaches a trial first owns it, and a slot that finds nothing left
+exits in seconds. The second submission reports the first job's in-flight trials as
+"claimed but unfinished" — expected while it is running, and not a reason to
+`--clear-stale`.
+
 ---
 
 ## 4. Offline W&B
@@ -249,11 +293,21 @@ and to sanity-check `--trials-per-gpu`.
 
 `tamia/env.sh <sweep>` sets `WANDB_MODE=offline` and points `WANDB_DIR` at a
 per-sweep directory. `train_st.py` needs no change — it already reads the mode from
-the environment. Runs are written in full to:
+the environment. Runs are written in full to a directory of their own **inside the
+repo**:
 
 ```
-$SCRATCH/wandb/<sweep>/wandb/offline-run-<timestamp>-<id>/
+<repo>/wandb_offline/<sweep>/wandb/offline-run-<timestamp>-<id>/
 ```
+
+`wandb_offline/` is git-ignored, and `$FIRE_WANDB_ROOT` overrides where it goes
+(`export FIRE_WANDB_ROOT=$SCRATCH/wandb` puts it back on scratch). Sweeps that ran
+before this wrote to `$SCRATCH/wandb/<sweep>/`; `sync_wandb.sh` still searches there
+too, so an older backlog uploads without anything being moved.
+
+The queue's claim/done markers stay on `$SCRATCH` — those are thousands of empty
+files, which is what `/project`'s inode quota minds. A sweep's W&B runs are a few
+thousand real files; check headroom with `diskusage_report` before a large one.
 
 Then, **from a login node** (the only place with internet):
 
@@ -282,12 +336,14 @@ Tag   == tamia                               # everything from this cluster
 Grouping by `Group` gives you the same per-sweep roll-up you are used to. Check the
 run count there against the number `sync_wandb.sh` reported.
 
-### Scratch hygiene
+### Disk hygiene
 
-Offline runs, the venv, the datasets and the queue state all live on `$SCRATCH`,
-which is **not backed up and is purged periodically**. Sync a sweep soon after it
-finishes rather than letting months of offline runs accumulate; once synced, W&B is
-the copy of record and the local directory can go. Check space with `diskusage_report`.
+The venv, the datasets and the queue state live on `$SCRATCH`, which is **not backed
+up and is purged periodically**. The offline runs no longer do, so a purge does not
+take them with it — but they now count against the project quota instead. Sync a
+sweep soon after it finishes rather than letting months of runs accumulate; once
+synced, W&B is the copy of record and `wandb_offline/<sweep>` can go. Check space
+with `diskusage_report`.
 
 ---
 
@@ -321,7 +377,7 @@ trial and produce a duplicate W&B run. `--force` overrides it if you are certain
 `--reset` wipes all state for a sweep and re-runs everything; it asks for
 confirmation, and note it does **not** delete the offline runs already on disk, so
 syncing afterwards would produce duplicates unless you also clear
-`$SCRATCH/wandb/<sweep>`.
+`wandb_offline/<sweep>`.
 
 To find *why* a trial failed, its own stdout is in `logs/<log-subdir>/<run_name>.out`
 (the subdir comes from the sweep YAML's `command:` block, exactly as on nibi); the
