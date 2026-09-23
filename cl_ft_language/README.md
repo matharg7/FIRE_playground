@@ -86,10 +86,28 @@ task *t*):
   zero-shot, which needs `--eval_lookahead` and `--eval_zero_shot`.
 
 **Sparsity.** The pretrained weights are magnitude-pruned to `--sparsity` at
-the start; RigL then prunes and regrows every `delta_t` steps. Only the Linear
-layers inside the decoder blocks are sparse (q/k/v/o and gate/up/down);
-embeddings, the tied `lm_head` and the norms stay dense — 72% of Qwen2.5-0.5B's
-weights, 79% of SmolLM2-135M's.
+the start; RigL then prunes and regrows every `delta_t` steps.
+
+`--sparse_targets` chooses which Linear weights inside the decoder blocks get a
+mask. The embeddings, the tied `lm_head` and the norms are never candidates
+under any setting — `lm_head` is tied to the embedding in both models, so
+masking it would mask the embedding too.
+
+| `--sparse_targets` | masks | Qwen2.5-0.5B | SmolLM2-135M |
+|---|---|---|---|
+| `all_linear` | attention and MLP | 72.4% | 78.9% |
+| **`mlp`** (default) | `gate/up/down_proj` | **63.5%** | **59.2%** |
+| `up_down` | `up/down_proj` only | 42.3% | 39.5% |
+
+The default prunes the MLP only; attention stays dense. `gate_proj` is included
+because it is an up-projection by shape (hidden → intermediate), the twin of
+`up_proj` in the SwiGLU pair.
+
+**`--sparsity` is measured within the targeted set, not over the model**, so
+the same value prunes less as the set narrows: at `mlp`, `--sparsity 0.2`
+removes 12.7% of Qwen's weights; at `up_down` it removes 8.5%. The sparsifier
+prints `coverage` and `effective_global_sparsity` at startup, and comparing a
+sparsity value across two target sets is meaningless without them.
 
 ---
 
@@ -110,8 +128,12 @@ cl_ft_language/
 │   ├── env.sh                  paths, modules and the cluster profile
 │   ├── local.sh.example        per-user settings (copy to local.sh)
 │   ├── build_env.sh            env | download | check
-│   ├── sweep.conf              what the sweep runs
+│   ├── sweep.conf              resources, and what the sbatch sweep runs
 │   ├── sweep.sh                builds and submits the job array
+│   ├── sweep_rigl.yaml         W&B sweep: the RigL grid
+│   ├── sweep_dense.yaml        W&B sweep: the dense baseline
+│   ├── launch_wandb_sweep.sh   registers a sweep, queues one agent per run
+│   ├── wandb_agent.sh          one agent = one array task = one run
 │   ├── run_trace.sh            one run (an array task, or standalone)
 │   ├── profile.sbatch          the profiling job
 │   └── sync_wandb.sh           push offline runs, from a login node
@@ -123,7 +145,36 @@ cl_ft_language/
 
 ## 4. Running
 
-### The sweep
+### The W&B sweep (preferred)
+
+The grid lives in a W&B sweep config, and each Slurm array task runs one agent
+that takes exactly one configuration (`wandb agent --count 1`). One run per
+job, so a job's walltime is one run's walltime and a crash costs one run rather
+than the rest of the queue. The W&B server hands out each grid point once, so
+agents never collide and the agent count is independent of the grid size.
+
+```bash
+./cl_ft_language/scripts/launch_wandb_sweep.sh scripts/sweep_rigl.yaml           # dry run
+./cl_ft_language/scripts/launch_wandb_sweep.sh scripts/sweep_rigl.yaml --submit
+./cl_ft_language/scripts/launch_wandb_sweep.sh scripts/sweep_dense.yaml --submit
+./cl_ft_language/scripts/launch_wandb_sweep.sh --resume <sweep_id> --agents 2 --submit
+```
+
+The dry run prints the grid, the run count and the resources, and contacts
+nothing. Everything lands in the `dst_trace_benchmark` project.
+
+`method: grid`, so every combination becomes exactly one run — this is a
+designed experiment, not a hyperparameter search. To add a dimension, promote a
+parameter from `{value: x}` to `{values: [a, b]}`. Resources come from
+`sweep.conf` (`TIME`, `CPUS_PER_TASK`, `MEM_PER_CPU`, `GPUS_PER_TASK`).
+
+Dense is a **separate** yaml on purpose: it ignores every sparse knob, so in
+one grid it would be multiplied out into identical duplicate runs.
+
+This needs `TRACE_WANDB_MODE=online`, since agents pull their configs from the
+W&B server; the launcher refuses to run otherwise.
+
+### The sbatch sweep (no W&B server involved)
 
 `scripts/sweep.conf` holds the settings; edit it rather than `sweep.sh`. By
 default it runs 4 jobs: dense, and RigL at 5%, 10% and 20% sparsity, all with
@@ -186,11 +237,12 @@ Everything in `src/config.py` is a flag; `--max-prompt-len` and
 | `--length_grouped` | True | batches of similar length; 68% → 25% padding, ~1.6× faster |
 | `--reset_optimizer` | True | clear AdamW state at each task boundary |
 | `--sparsifier` | dense | `dense`, `rigl` or `set` |
-| `--sparsity` | 0.1 | fraction of masked weights in the targeted layers |
+| `--sparsity` | 0.1 | fraction of masked weights **within the targeted layers** |
+| `--sparse_targets` | mlp | which weights are maskable (`all_linear`, `mlp`, `up_down`) |
 | `--sparse_distribution` | erk | how sparsity is split across layers (`erk` or `uniform`) |
 | `--grow_init` | zero | `previous` regrows a weight at its former (or pretrained) value |
 | `--drop_fraction_schedule` | global | `per_task` restarts the cosine each task |
-| `--num_mask_updates` / `--t_end_ratio` / `--pruning_ratio` | 100 / 0.8 / 0.3 | the mask schedule |
+| `--num_mask_updates` / `--t_end_ratio` / `--pruning_ratio` | 100 / 0.8 / 0.3 | the mask schedule; the sweep uses 1000 updates (`delta_t` 94) |
 | `--max_eval_per_task` | 0 (all) | the sweep uses 500 |
 | `--eval_zero_shot` / `--eval_loss` / `--eval_lookahead` | True | see §2 |
 | `--max_steps_per_task` | 0 | cap steps per task, for smoke runs |

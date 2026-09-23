@@ -37,11 +37,33 @@ def test_cli_flags_accept_both_spellings():
 # --- schedule ---------------------------------------------------------------------
 
 def test_lr_warms_up_then_decays_to_floor():
-    cfg = cfg_with(learning_rate=1e-4, warmup_ratio=0.1, min_lr_ratio=0.1)
+    cfg = cfg_with(learning_rate=1e-4, warmup_ratio=0.1, min_lr_ratio=0.1,
+                   lr_schedule='cosine')
     lrs = [train.get_lr(cfg, s, 100) for s in range(100)]
     assert lrs[0] == pytest.approx(1e-5) and lrs[9] == pytest.approx(1e-4)
     assert all(a >= b for a, b in zip(lrs[9:], lrs[10:]))
     assert lrs[-1] == pytest.approx(1e-5, rel=0.05)
+
+
+def test_constant_schedule_is_flat_like_trace():
+    """TRACE uses get_constant_schedule_with_warmup with 0 warmup steps, so the
+    learning rate never moves. That is the default here."""
+    cfg = cfg_with(learning_rate=1e-5, warmup_ratio=0.0, lr_schedule='constant')
+    lrs = [train.get_lr(cfg, s, 100) for s in range(100)]
+    assert all(lr == pytest.approx(1e-5) for lr in lrs)
+    assert cfg_with().lr_schedule == 'constant'
+
+    # With warmup it ramps, then holds flat rather than decaying.
+    warm = cfg_with(learning_rate=1e-5, warmup_ratio=0.1, lr_schedule='constant')
+    lrs = [train.get_lr(warm, s, 100) for s in range(100)]
+    assert lrs[0] == pytest.approx(1e-6) and lrs[9] == pytest.approx(1e-5)
+    assert all(lr == pytest.approx(1e-5) for lr in lrs[9:])
+
+
+def test_effective_batch_matches_trace():
+    """TRACE: per_device 2 x accum 8 x 8 GPUs = 128. One GPU, same product."""
+    cfg = cfg_with()
+    assert cfg.batch_size * cfg.gradient_accumulation_steps == 128
 
 
 def test_steps_for_task_counts_accumulation_epochs_and_cap():

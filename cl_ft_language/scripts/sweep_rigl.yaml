@@ -1,0 +1,92 @@
+# W&B sweep: the RigL grid for continual fine-tuning on TRACE.
+#
+#   ./scripts/launch_wandb_sweep.sh scripts/sweep_rigl.yaml --agents 12 --submit
+#
+# `method: grid` means every combination below becomes exactly one run, which
+# is what we want: this is a designed experiment, not a search. Agents pull the
+# next unrun combination from the W&B server, so the number of agents and the
+# number of runs are independent -- one agent would run them all in sequence.
+#
+# The dense baseline lives in sweep_dense.yaml: it ignores every sparse knob,
+# so including it here would multiply it out into identical duplicate runs.
+#
+# Paths are deliberately absent. train.py resolves data_dir, out_root and
+# wandb_dir from TRACE_DATA_DIR / TRACE_OUTPUT_DIR / TRACE_WANDB_DIR, which
+# scripts/env.sh exports inside the job.
+
+program: src/train.py
+project: dst_trace_benchmark
+method: grid
+
+metric:
+  name: cl/op          # overall performance, the headline CL metric
+  goal: maximize
+
+parameters:
+  # ---- swept -----------------------------------------------------------------
+  sparsity:
+    # 0.5 added 2026-09-23. Within `mlp` these are 3.2 / 6.4 / 19.1 / 31.8% of
+    # the whole model; the lower end may be too weak to show a plasticity
+    # effect at all.
+    values: [0.05, 0.1, 0.3, 0.5]
+  seed:
+    values: [0]
+
+  # ---- fixed for this sweep --------------------------------------------------
+  # Promote any of these to `values: [...]` to add a dimension.
+  sparsifier:              {value: rigl}
+  # MLP only (gate/up/down); attention, embeddings and the tied lm_head dense.
+  sparse_targets:          {value: mlp}
+  sparse_distribution:     {value: erk}
+  grow_init:               {value: previous}
+  drop_fraction_schedule:  {value: per_task}
+  # delta_t must be read in DATA, not steps: at effective batch 128 one step is
+  # 128 examples, so matching RigL's published delta_t=100 *steps* would be 16x
+  # less frequent than the same cadence at batch 8. It also has to fit the
+  # SHORTEST task -- per_task restarts the cosine with t_end = 0.8 x that task's
+  # steps, and C-STANCE is only 195 steps. At 60 updates (delta_t=97) C-STANCE
+  # and FOMC got exactly ONE topology update each. 600 gives delta_t=9: 17
+  # updates in the shortest task, 649 over the run, ~2 min of mask cost.
+  # check_update_cadence() now fails at startup if any task is starved.
+  num_mask_updates:        {value: 600}
+  t_end_ratio:             {value: 0.8}
+  pruning_ratio:           {value: 0.3}
+
+  model:                   {value: Qwen/Qwen2.5-0.5B}
+  subset:                  {value: 5000}
+  epochs_per_task:         {value: "5,3,7,5,3,5,5,7"}   # TRACE's own
+  # TRACE: per_device 2 x accum 8 x 8 GPUs = effective batch 128. On one GPU
+  # only the effective number reaches the optimizer, so 4 x 32 is the same
+  # update. Micro-batch 4 rather than 8 because fp32 at 8 peaked at 61.4GB and
+  # hit an allocator OOM on Py150; at 4 the heaviest arm peaks at 38.2GB.
+  batch_size:              {value: 4}
+  gradient_accumulation_steps: {value: 32}
+  # bf16 skips 17-42% of steps on the long-prompt tasks (Qwen's tied embedding
+  # overflows in the backward); fp32 skips none. See PLAN.md.
+  dtype:                   {value: float32}
+  max_prompt_len:          {value: 1024}
+  max_ans_len:             {value: 512}
+  learning_rate:           {value: 0.00001}
+  # TRACE: get_constant_schedule_with_warmup, --num_warmup_steps 0.
+  lr_schedule:             {value: constant}
+  warmup_ratio:            {value: 0.0}
+  weight_decay:            {value: 0.0}         # grow_init=previous needs 0
+  length_grouped:          {value: "True"}
+  reset_optimizer:         {value: "True"}
+
+  max_eval_per_task:       {value: 500}
+  eval_batch_size:         {value: 16}
+  eval_zero_shot:          {value: "True"}
+  eval_loss:               {value: "True"}
+  eval_lookahead:          {value: "True"}
+
+  save_checkpoint:         {value: final}
+  wandb_mode:              {value: online}
+  wandb_project:           {value: dst_trace_benchmark}
+
+command:
+  - ${env}
+  - python
+  - -u
+  - ${program}
+  - ${args}

@@ -93,6 +93,141 @@ Last updated 2026-09-21.
   - Fixed: `src/data.py` now keeps `src/` ahead of `trace/` on `sys.path`, because `trace/train.py` was shadowing `src/train.py`. Tested.
   - Smoke-profile eval number for SmolLM2 (untrained, so answers run to the token cap): ScienceQA's full test set would take about 130 min per evaluation, and MeetingBank about 35 min. Eval subsampling and/or faster generation are needed.
 
+## First launch failed: NaN at step 80 (2026-09-23)
+
+The first sweep (4 runs, nibi) went to NaN in task 0 and never recovered --
+1994 of 2001 logged steps were NaN. Cancelled after ~3 GPU-hours. Two
+independent causes, neither of them the sparse code: the dense arm, which never
+builds a sparsifier, failed identically at the same step.
+
+**Cause 1: the effective batch was 16x too small.** TRACE trains at 128
+(`per_device_train_batch_size 2` x `gradient_accumulation_steps 8` x 8 GPUs,
+from `trace/scripts/train_seq_cl.sh`). Our `sweep.conf` had batch 8 with
+`gradient_accumulation_steps=1`, i.e. 8. T4.2's "batch 8, no gradient
+accumulation needed at this size" was reasoning about *memory* and silently
+changed the optimisation; `learning_rate=1e-5` is TRACE's value for batch 128.
+Measured gradient norms were 28-257 against `grad_clip=1.0` on every step.
+
+**Cause 2: bf16 overflows on Qwen2.5-0.5B, and nothing guarded the step.**
+A GPU bisect (`src/debug_nan.py`, 120 steps, identical batches) showed:
+
+| dtype | optimizer | result |
+|---|---|---|
+| bfloat16 | fused AdamW | NaN at step 73 |
+| bfloat16 | unfused AdamW | NaN at step 73, identical |
+| float32 | fused AdamW | clean through 120 steps |
+
+The forward is healthy at the failing step (loss 0.527, logits absmax 31.6);
+the inf is born in the **backward**, first in `model.embed_tokens.weight`.
+`clip_grad_norm_` then scales every parameter by `max_norm/nan`, turning all
+290 tensors into NaN in one step -- permanent, unrecoverable, from one bad
+micro-batch.
+
+Qwen2.5-0.5B has vocab 151,936 over hidden 896, so the **tied** embedding is
+27.5% of the model and takes gradient from both the lookup and `lm_head`.
+TRACE ran Llama-2-7b-chat (vocab 32k / hidden 4096), where it is ~2%. Their
+bf16 stability never transferred to this shape.
+
+Skip rates at the corrected effective batch of 128, with the guard counting
+rather than aborting:
+
+| task | bf16 skipped | fp32 skipped |
+|---|---|---|
+| C-STANCE | 5/60 (8.3%) | 0 |
+| MeetingBank | 2/12 (17%) | 0 |
+| Py150 | 5/12 (42%) | 0 |
+
+bf16 is unusable here: the skips correlate with long sequences, so it would
+systematically drop the hardest examples. **fp32 is a deliberate deviation from
+TRACE**, forced by the model choice, and costs only 5-15% throughput.
+
+**Why not DeepSpeed, as TRACE uses.** sparsimony's `DSTMixin` rejects any
+optimizer by exact type (`type(optimizer) not in {SGD, AdamW, Adam}`), and RigL
+depends on `optimizer.state[original_param]["exp_avg"] *= mask` via
+`register_step_post_hook` -- ZeRO flattens parameters into buckets, so that
+lookup would not resolve and `test_adamw_moments_are_zero_for_masked_weights`
+would fail. On one GPU ZeRO-2 also buys nothing. Separately it would not have
+fixed bf16: we already keep fp32 master weights and fp32 grads, and DeepSpeed
+casts the model *to* bf16 where autocast keeps softmax/layernorm/loss in fp32.
+The one thing it gave TRACE -- skipping non-finite steps -- is now in
+`train_task` directly.
+
+**Fixes.**
+- `train.py`: skip the optimizer step when the grad norm is not finite, count
+  it, log `train/skipped_steps`, and abort above `--max_skipped_ratio` (5%)
+  rather than degrading quietly for five hours.
+- `lr_schedule` config: `constant` (TRACE's
+  `get_constant_schedule_with_warmup` with 0 warmup steps) is now the default;
+  `cosine` is our own variant.
+- Effective batch 128 as **4 x 32**, not 8 x 16: fp32 at micro-batch 8 peaked
+  at 61.4GB and hit an allocator OOM on Py150. At 4 the heaviest arm
+  (fp32 + RigL 0.3) peaks at 38.2GB. The optimizer update is identical.
+- `dtype` default `float32`.
+- `num_mask_updates` 1000 -> 60. This follows from the batch change: the run is
+  **7,340** optimizer steps at effective batch 128, not 117,500, so 60 updates
+  give `delta_t=97` -- RigL's published ~100. At 1000 it would be every 5 steps.
+
+**Measured after the fix** (H100, fp32, 4 x 32, `sparse_targets=mlp`):
+
+| task | arm | tok/s | peak mem | skipped |
+|---|---|---|---|---|
+| MeetingBank | dense | 29,088 | 34.4 GB | 0 |
+| MeetingBank | rigl 0.3 | 27,790 | 38.2 GB | 0 |
+| Py150 | dense | 22,359 | 34.4 GB | 0 |
+| Py150 | rigl 0.3 | 20,906 | 38.2 GB | 0 |
+
+Estimated run: 2.8-3.8 h training + ~1.8 h eval = 4.6-5.6 h against a 06:50
+walltime. The eval figure is from bf16 profiling and generation is now fp32
+too, so it may be ~30% higher; `scores.json` is written after every task, so an
+overrun costs the tail rather than the run.
+
+**Lesson.** The GPU tests all run SmolLM2-135M; Qwen2.5-0.5B had only ever been
+profiled for throughput, never trained. The reference implementation should be
+diffed against before the first launch, not after it fails.
+
+## Second launch stopped: delta_t starved the early tasks (2026-09-23)
+
+Noticed as a rising `dst/pruning_ratio` across task boundaries
+(0.094 -> 0.141 -> 0.284 -> ... -> 0.298). The scheduler was fine; the cadence
+was not.
+
+`delta_t` is derived from the **whole run**
+(`t_end_ratio * total_steps // num_mask_updates`), but `per_task` restarts the
+cosine with `t_end = t_end_ratio * that task's steps`. After the effective-batch
+fix the run is 7,340 steps and C-STANCE is only **195**, so `delta_t=97` was 62%
+of its entire update window:
+
+| task | steps | t_end | updates at delta_t=97 | logged pr |
+|---|---|---|---|---|
+| C-STANCE | 195 | 156 | **1** | 0.094 |
+| FOMC | 234 | 187 | **1** | 0.141 |
+| MeetingBank | 820 | 656 | 6 | 0.284 |
+| 20Minuten | 2187 | 1749 | 18 | 0.298 |
+
+With one sample point per short task, a short `t_end` lands late on the cosine
+(low value) and a long `t_end` lands early (high value) -- hence the rise. The
+real damage is that RigL barely ran on the first two tasks, which is where BWT
+measures forgetting.
+
+**Cause.** When the effective batch went to 128, `num_mask_updates` was cut
+1000 -> 60 to keep `delta_t ~= 97`, "matching RigL's published delta_t=100".
+That was reasoning in steps while the step had changed size: at batch 128 one
+step is 128 examples, so `delta_t=97` is 12,416 examples between updates, 16x
+less frequent than the same setting at batch 8. **delta_t has to be read in
+data, and it has to fit the shortest task, not the whole run.**
+
+**Fix.** `num_mask_updates=600` -> `delta_t=9` (1,152 examples between updates,
+close to the original 752): C-STANCE 17 updates, FOMC 20, ... 20Minuten 194,
+649 over the run, ~2 min of mask cost. Every task's cosine now starts at
+~0.2975, i.e. the full `pruning_ratio`, as intended.
+
+**Guardrail.** `sparse_utils.check_update_cadence()` runs at startup, prints
+the per-task update counts, and raises if any task gets fewer than
+`--min_updates_per_task` (default 10), naming the `num_mask_updates` that would
+fix it. Regression tests in `tests/test_rigl.py` pin both the starved case and
+the shipped default. This class of mismatch is now a startup error rather than
+a curve to notice three tasks in.
+
 ## Migration of the `dst-fire-full-reset` branch (2026-09-22)
 
 Verified against that branch's code, then migrated. See README §5 for how to use it.

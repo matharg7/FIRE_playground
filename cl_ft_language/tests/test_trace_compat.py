@@ -189,3 +189,34 @@ def test_real_trace_task_loads(trace_data_dir):
     assert len(ds.get_train_data()) == 5000
     assert len(ds.get_test_data()) == 496
     assert ds.get_answer(ds.get_train_data()[0]) in {"A", "B", "C"}
+
+
+# --- degenerate generations must score 0, not crash (2026-09-23) ------------
+
+def test_rouge_and_bleu_survive_degenerate_generations():
+    """A heavily pruned untrained model emits punctuation-only text. rouge's
+    rouge_l_summary_level raises "Collections must contain at least 1 sentence"
+    on those, which killed the sparsity-0.5 run during zero-shot eval.
+    """
+    import metrics
+    junk = ["", " ", "\n", ".", "...", "!?"]
+    real = ["the cat sat on the mat"] * len(junk)
+    # every degenerate prediction, against real targets
+    assert metrics.caculate_rouge(junk, real) == 0.0
+    assert metrics.caculate_bleu(junk, real, 1) == 0.0
+    # degenerate targets too, and both sides at once
+    assert metrics.caculate_rouge(real, junk) == 0.0
+    assert metrics.caculate_rouge(junk, junk) == 0.0
+    # empty input must not divide by zero
+    assert metrics.caculate_rouge([], []) == 0.0
+    assert metrics.caculate_bleu([], [], 4) == 0.0
+    # a real pair still scores
+    assert metrics.caculate_rouge(["the cat sat on the mat"], ["the cat sat"]) > 0.0
+
+
+def test_scienceqa_eval_survives_punctuation_only_predictions():
+    from evaluations import eval_ScienceQA
+    preds = ["A.", "B", ".", "", "C Because it is warm"]
+    gts = ["A Because heat rises"] * len(preds)
+    out = eval_ScienceQA.eval(preds, gts)          # must not raise
+    assert 0.0 <= out["accuracy"] <= 1.0 and 0.0 <= out["rouge-L"] <= 1.0

@@ -11,10 +11,18 @@ import train
 from sparsimony.utils import get_mask
 
 SMOL = "HuggingFaceTB/SmolLM2-135M"
+SMOL_LAYERS = 30
 
 
 def cfg_with(**kw):
     return config.get_config([], **kw)
+
+
+def expected_sparse_modules(target_set=None, n_layers=SMOL_LAYERS):
+    """How many tensors a target set masks, derived rather than hardcoded:
+    the count changes with --sparse_targets (7, 3 or 2 Linears per block)."""
+    target_set = target_set or sparse_utils.DEFAULT_TARGETS
+    return len(sparse_utils.TARGET_SETS[target_set]) * n_layers
 
 
 def test_rigl_config_validation():
@@ -48,7 +56,7 @@ def _prepared(sparsity, distribution):
 def test_prepare_prunes_to_target_sparsity(sparsity, distribution):
     model, sp = _prepared(sparsity, distribution)
     stats = sparse_utils.get_sparsity_stats(model)
-    assert stats["num_sparse_modules"] == 210
+    assert stats["num_sparse_modules"] == expected_sparse_modules()
     assert stats["mask_sparsity"] == pytest.approx(sparsity, abs=1e-3)
     assert stats["weight_sparsity"] >= stats["mask_sparsity"] - 1e-6
 
@@ -120,7 +128,7 @@ def test_adamw_moments_are_zero_for_masked_weights(rigl_run):
         assert (state["exp_avg"][~mask] == 0).all()
         assert (state["exp_avg_sq"][~mask] == 0).all()
         checked += 1
-    assert checked == 210
+    assert checked == expected_sparse_modules()
 
 
 @pytest.mark.gpu
@@ -140,7 +148,7 @@ def test_checkpoint_is_a_plain_hf_model_matching_the_sparse_one(rigl_run):
     plain = AutoModelForCausalLM.from_pretrained(path, dtype=torch.float32).cuda().eval()
     assert not any("parametrizations" in k for k in plain.state_dict())
     masks = torch.load(os.path.join(path, "masks.pt"))
-    assert len(masks) == 210
+    assert len(masks) == expected_sparse_modules()
     params = dict(plain.named_parameters())
     for name, mask in masks.items():
         assert (params[name][~mask.cuda()] == 0).all(), name
@@ -152,3 +160,45 @@ def test_checkpoint_is_a_plain_hf_model_matching_the_sparse_one(rigl_run):
     with torch.no_grad():
         b = plain(input_ids=ids).logits
     assert torch.allclose(a, b, atol=1e-4)
+
+
+# --- the delta_t / per-task-window mismatch (2026-09-23) --------------------
+
+def test_cadence_check_rejects_a_delta_t_that_starves_short_tasks():
+    """delta_t comes from the whole run, but per_task restarts the cosine over
+    each task's own steps. A coarse delta_t then leaves the short early tasks
+    with ~1 topology update, which showed up only as a rising pruning ratio.
+    """
+    # TRACE at effective batch 128: C-STANCE 195 steps, 20Minuten 2187.
+    per_task = [195, 234, 820, 781, 585, 1171, 1367, 2187]
+
+    starved = cfg_with(sparsifier="rigl", drop_fraction_schedule="per_task",
+                       num_mask_updates=60, t_end_ratio=0.8, min_updates_per_task=10)
+    sched = sparse_utils.sparsifier_schedule(starved, sum(per_task))
+    assert sched["delta_t"] == 97
+    counts = sparse_utils.updates_per_task(starved, per_task, sched["delta_t"])
+    assert counts[0] == 1 and counts[1] == 1, counts
+    with pytest.raises(ValueError, match="too coarse"):
+        sparse_utils.check_update_cadence(starved, per_task, sched)
+
+    ok = cfg_with(sparsifier="rigl", drop_fraction_schedule="per_task",
+                  num_mask_updates=600, t_end_ratio=0.8, min_updates_per_task=10)
+    sched = sparse_utils.sparsifier_schedule(ok, sum(per_task))
+    assert sched["delta_t"] == 9
+    counts = sparse_utils.updates_per_task(ok, per_task, sched["delta_t"])
+    assert min(counts) >= 10, counts
+    sparse_utils.check_update_cadence(ok, per_task, sched)   # must not raise
+
+
+def test_cadence_check_is_skipped_for_dense():
+    cfg = cfg_with(sparsifier="dense", min_updates_per_task=10)
+    sched = sparse_utils.sparsifier_schedule(cfg, 7340)
+    sparse_utils.check_update_cadence(cfg, [195, 2187], sched)   # no raise
+
+
+def test_sweep_default_gives_every_task_enough_updates():
+    """The shipped default must pass its own check."""
+    per_task = [195, 234, 820, 781, 585, 1171, 1367, 2187]
+    cfg = cfg_with(sparsifier="rigl", drop_fraction_schedule="per_task")
+    sched = sparse_utils.sparsifier_schedule(cfg, sum(per_task))
+    sparse_utils.check_update_cadence(cfg, per_task, sched)

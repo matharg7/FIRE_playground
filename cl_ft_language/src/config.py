@@ -27,11 +27,23 @@ CONFIG = {
     # or a comma-separated list, one per task (TRACE's own: 5,3,7,5,3,5,5,7).
     'epochs_per_task': '1',
     'max_steps_per_task': 0,        # 0 = no cap; else cap optimizer steps per task
-    'batch_size': 8,                # micro-batch
-    'gradient_accumulation_steps': 4,
+    # TRACE trains at an effective batch of 128 (per_device 2 x accum 8 x 8
+    # GPUs). On one GPU the same effective batch is micro-batch x accum, and
+    # only the effective number matters to the optimizer: 4 x 32 = 128.
+    # Micro-batch 4 rather than 8 because fp32 at 8 peaked at 61.4GB and hit an
+    # allocator OOM on Py150; at 4 the heaviest arm (fp32 + RigL) peaks at 38.2GB.
+    'batch_size': 4,                # micro-batch (memory-bound)
+    'gradient_accumulation_steps': 32,
     'learning_rate': 1e-5,          # TRACE's full fine-tuning LR
-    'min_lr_ratio': 0.1,            # cosine decays to learning_rate * min_lr_ratio
-    'warmup_ratio': 0.03,           # of each task's steps; the schedule restarts per task
+    # TRACE uses get_constant_schedule_with_warmup with --num_warmup_steps 0,
+    # i.e. a flat 1e-5 for the whole run. 'cosine' is our own variant.
+    'lr_schedule': 'constant',      # constant | cosine
+    'min_lr_ratio': 0.1,            # cosine only: decays to learning_rate * min_lr_ratio
+    'warmup_ratio': 0.0,            # of each task's steps; the schedule restarts per task
+    # Fraction of optimizer steps allowed to be skipped for non-finite
+    # gradients before the run is declared broken. DeepSpeed skips such steps
+    # for TRACE; a handful is normal in bf16, a flood means it is not training.
+    'max_skipped_ratio': 0.05,
     'weight_decay': 0.0,
     'beta1': 0.9,
     'beta2': 0.95,
@@ -47,8 +59,22 @@ CONFIG = {
     # until t_end_ratio of the whole run (one schedule across all tasks).
     'sparsifier': 'dense',          # dense | rigl | set
     'sparsity': 0.1,
+    # Which weights get a mask. Embeddings, the tied lm_head, the norms and
+    # (by default) attention are never touched. Note that `sparsity` is
+    # measured *within* this set, so the same value prunes less of the whole
+    # model as the set narrows:
+    #   all_linear  attention + MLP   72% of Qwen2.5-0.5B
+    #   mlp         gate + up + down  64%   <- the experiment's default
+    #   up_down     up + down only    42%  (gate_proj stays dense too)
+    #   gate        gate_proj alone   21%
+    'sparse_targets': 'mlp',        # all_linear | mlp | up_down | gate
     'sparse_distribution': 'erk',   # erk | uniform (per-layer split of the sparsity)
-    'num_mask_updates': 100,        # topology updates over the whole run
+    'num_mask_updates': 600,        # topology updates over the whole run
+    # Startup check: delta_t is derived from the whole run, but the
+    # drop-fraction schedule is per-task, so a coarse delta_t can leave a short
+    # task with almost no topology updates. Fail loudly instead of silently
+    # training a near-static mask. 0 disables the check.
+    'min_updates_per_task': 10,
     't_end_ratio': 0.8,             # stop updating the topology after this fraction of steps
     'pruning_ratio': 0.3,           # fraction of active weights swapped per update
     # How the drop fraction (pruning_ratio) is scheduled, for rigl and set:
@@ -67,7 +93,11 @@ CONFIG = {
     'grow_init': 'zero',            # zero | previous
 
     # ---- System ----
-    'dtype': 'bfloat16',            # autocast dtype; master weights stay fp32
+    # bfloat16 overflows in the backward through Qwen2.5's tied embedding
+    # (vocab 151,936 over hidden 896, 27% of the model), skipping 17% of steps
+    # on MeetingBank and 42% on Py150. float32 skips none at ~5-15% less
+    # throughput. TRACE used bf16 on Llama-2-7B, whose embedding is ~2%.
+    'dtype': 'float32',             # autocast dtype; master weights stay fp32
     'gradient_checkpointing': False,
     'compile': False,
     'num_workers': 2,
@@ -93,12 +123,16 @@ CONFIG = {
     'log_interval': 10,             # optimizer steps between log lines
     'wandb_mode': 'offline',        # offline | online | disabled
     'wandb_dir': '',                # empty = $TRACE_WANDB_DIR
-    'wandb_project': 'trace_sparse_cl',
+    'wandb_project': 'dst_trace_benchmark',
     'wandb_entity': '',             # empty = account default
     'comment': '',
 }
 
 SPARSIFIERS = ('dense', 'rigl', 'set')
+# Mirrors sparse_utils.TARGET_SETS, spelled out here so config.py stays free of
+# torch and sparsimony imports; tests/test_sparse_utils.py checks they agree.
+SPARSE_TARGETS = ('all_linear', 'mlp', 'up_down', 'gate')
+LR_SCHEDULES = ('constant', 'cosine')
 DROP_FRACTION_SCHEDULES = ('global', 'per_task', 'constant')
 GROW_INITS = ('zero', 'previous')
 WANDB_MODES = ('offline', 'online', 'disabled')
@@ -161,7 +195,8 @@ def build_parser(defaults=None):
 
 def validate(cfg):
     for field, allowed in (('sparsifier', SPARSIFIERS), ('wandb_mode', WANDB_MODES),
-                           ('save_checkpoint', SAVE_MODES), ('eval_split', ('test', 'eval'))):
+                           ('save_checkpoint', SAVE_MODES), ('eval_split', ('test', 'eval')),
+                           ('lr_schedule', LR_SCHEDULES)):
         if getattr(cfg, field) not in allowed:
             raise ValueError(f"{field} must be one of {allowed}, got {getattr(cfg, field)!r}")
     if cfg.subset not in SUBSETS:
@@ -175,6 +210,8 @@ def validate(cfg):
         raise ValueError(f"dtype must be bfloat16, float16 or float32, got {cfg.dtype!r}")
     if cfg.sparse_distribution not in ('erk', 'uniform'):
         raise ValueError(f"sparse_distribution must be erk or uniform, got {cfg.sparse_distribution!r}")
+    if cfg.sparse_targets not in SPARSE_TARGETS:
+        raise ValueError(f"sparse_targets must be one of {SPARSE_TARGETS}, got {cfg.sparse_targets!r}")
     if cfg.drop_fraction_schedule not in DROP_FRACTION_SCHEDULES:
         raise ValueError(f"drop_fraction_schedule must be one of {DROP_FRACTION_SCHEDULES}, "
                          f"got {cfg.drop_fraction_schedule!r}")

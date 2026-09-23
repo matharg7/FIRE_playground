@@ -1,0 +1,61 @@
+# W&B sweep: the dense baseline, in the same project as the RigL grid.
+#
+#   ./scripts/launch_wandb_sweep.sh scripts/sweep_dense.yaml --agents 1 --submit
+#
+# Kept separate from sweep_rigl.yaml because dense ignores every sparse knob:
+# in one grid it would be multiplied out into identical duplicate runs. Sweep
+# `seed` here to get the baseline's run-to-run spread, which is what the RigL
+# arms have to be judged against.
+
+program: src/train.py
+project: dst_trace_benchmark
+method: grid
+
+metric:
+  name: cl/op
+  goal: maximize
+
+parameters:
+  seed:
+    values: [0]
+
+  sparsifier:              {value: dense}
+
+  model:                   {value: Qwen/Qwen2.5-0.5B}
+  subset:                  {value: 5000}
+  epochs_per_task:         {value: "5,3,7,5,3,5,5,7"}
+  # TRACE: per_device 2 x accum 8 x 8 GPUs = effective batch 128. On one GPU
+  # only the effective number reaches the optimizer, so 4 x 32 is the same
+  # update. Micro-batch 4 rather than 8 because fp32 at 8 peaked at 61.4GB and
+  # hit an allocator OOM on Py150; at 4 the heaviest arm peaks at 38.2GB.
+  batch_size:              {value: 4}
+  gradient_accumulation_steps: {value: 32}
+  # bf16 skips 17-42% of steps on the long-prompt tasks (Qwen's tied embedding
+  # overflows in the backward); fp32 skips none. See PLAN.md.
+  dtype:                   {value: float32}
+  max_prompt_len:          {value: 1024}
+  max_ans_len:             {value: 512}
+  learning_rate:           {value: 0.00001}
+  # TRACE: get_constant_schedule_with_warmup, --num_warmup_steps 0.
+  lr_schedule:             {value: constant}
+  warmup_ratio:            {value: 0.0}
+  weight_decay:            {value: 0.0}
+  length_grouped:          {value: "True"}
+  reset_optimizer:         {value: "True"}
+
+  max_eval_per_task:       {value: 500}
+  eval_batch_size:         {value: 16}
+  eval_zero_shot:          {value: "True"}
+  eval_loss:               {value: "True"}
+  eval_lookahead:          {value: "True"}
+
+  save_checkpoint:         {value: final}
+  wandb_mode:              {value: online}
+  wandb_project:           {value: dst_trace_benchmark}
+
+command:
+  - ${env}
+  - python
+  - -u
+  - ${program}
+  - ${args}

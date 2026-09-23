@@ -21,9 +21,14 @@ def cfg_with(**kw):
 
 
 class TinyDecoder(nn.Module):
-    """Two 'decoder blocks' with the HF naming sparse_utils looks for."""
+    """Two 'decoder blocks' with the HF naming sparse_utils looks for.
 
-    def __init__(self, dim=16):
+    Carries a SwiGLU-shaped MLP as well as attention, so every target set
+    ('all_linear', 'mlp', 'up_down') selects something here, as it would on a
+    real Llama/Qwen decoder.
+    """
+
+    def __init__(self, dim=16, inter=32):
         super().__init__()
         layers = []
         for _ in range(2):
@@ -31,6 +36,10 @@ class TinyDecoder(nn.Module):
             block.self_attn = nn.Module()
             block.self_attn.q_proj = nn.Linear(dim, dim, bias=False)
             block.self_attn.o_proj = nn.Linear(dim, dim, bias=False)
+            block.mlp = nn.Module()
+            block.mlp.gate_proj = nn.Linear(dim, inter, bias=False)
+            block.mlp.up_proj = nn.Linear(dim, inter, bias=False)
+            block.mlp.down_proj = nn.Linear(inter, dim, bias=False)
             layers.append(block)
         self.model = nn.Module()
         self.model.layers = nn.ModuleList(layers)
@@ -39,6 +48,8 @@ class TinyDecoder(nn.Module):
     def forward(self, x):
         for block in self.model.layers:
             x = torch.relu(block.self_attn.o_proj(block.self_attn.q_proj(x)))
+            x = block.mlp.down_proj(
+                torch.nn.functional.silu(block.mlp.gate_proj(x)) * block.mlp.up_proj(x))
         return self.head(x)
 
 

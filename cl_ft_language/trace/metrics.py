@@ -18,6 +18,16 @@ def tokenize(text):
     return tokens
 
 
+def _has_scorable_content(text):
+    """rouge's rouge_l_summary_level splits text into sentences and raises
+    "Collections must contain at least 1 sentence." when that split is empty.
+    That is true for "" -- which the callers already skip -- but also for
+    punctuation-only strings like "." A degenerate generation must score 0,
+    not kill a five-hour run, so require at least one alphanumeric character.
+    """
+    return bool(re.sub(r"[^A-Za-z0-9]", "", text or ""))
+
+
 def bleu_score(reference, hypothesis, gram):
     reference_tokens = tokenize(reference)
     hypothesis_tokens = tokenize(hypothesis)
@@ -39,11 +49,15 @@ def caculate_bleu(results, data, gram):
     for output_id in range(len(results)):
         prediction = results[output_id]
         target = data[output_id] 
-        if prediction == "" or target == "":
+        if not _has_scorable_content(prediction) or not _has_scorable_content(target):
             continue
-        bleu = bleu_score(target, prediction, gram)
+        try:
+            bleu = bleu_score(target, prediction, gram)
+        except (ValueError, ZeroDivisionError):
+            continue
         bleus.append(bleu)
-    avg_bleu = sum(bleus) / len(results)
+    # Skipped items count as 0, as upstream intended; an all-empty batch is 0.
+    avg_bleu = sum(bleus) / len(results) if results else 0.0
     return avg_bleu
 
 
@@ -62,11 +76,14 @@ def caculate_rouge(results, data):
     for output_id in range(len(results)):
         prediction = results[output_id]
         target = data[output_id] 
-        if prediction == "" or target == "":
+        if not _has_scorable_content(prediction) or not _has_scorable_content(target):
             continue
-        rouge = score_rouge(target, prediction)
+        try:
+            rouge = score_rouge(target, prediction)
+        except (ValueError, ZeroDivisionError):
+            continue      # degenerate generation scores 0 rather than crashing
         rouges.append(rouge)
-    avg_rouge = sum(rouges) / len(results)
+    avg_rouge = sum(rouges) / len(results) if results else 0.0
     return avg_rouge
 
 

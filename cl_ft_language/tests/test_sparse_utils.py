@@ -7,8 +7,14 @@ from conftest import MODELS
 
 import sparse_utils
 
-# Linear weights per decoder block: q, k, v, o, gate, up, down.
-PER_BLOCK = 7
+# Linear weights per decoder block, by target set.
+PER_BLOCK = {"all_linear": 7, "mlp": 3, "up_down": 2, "gate": 1}
+SUFFIXES = {
+    "all_linear": {"q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"},
+    "mlp": {"gate_proj", "up_proj", "down_proj"},
+    "up_down": {"up_proj", "down_proj"},
+    "gate": {"gate_proj"},
+}
 
 
 @pytest.fixture(scope="module", params=MODELS)
@@ -26,30 +32,58 @@ def expected_block_params(config):
     return h * q + 2 * h * kv + q * h + 3 * h * inter
 
 
-def test_targets_are_exactly_the_decoder_block_linears(hf_model):
-    targets = sparse_utils.get_sparse_targets(hf_model)
+@pytest.mark.parametrize("target_set", ["all_linear", "mlp", "up_down", "gate"])
+def test_targets_are_exactly_the_named_block_linears(hf_model, target_set):
+    targets = sparse_utils.get_sparse_targets(hf_model, target_set)
     n_layers = hf_model.config.num_hidden_layers
-    assert len(targets) == PER_BLOCK * n_layers
+    assert len(targets) == PER_BLOCK[target_set] * n_layers
     names = {t["tensor_fqn"] for t in targets}
     assert all(n.startswith("model.layers.") and n.endswith(".weight") for n in names)
-    suffixes = {n.split(".")[-2] for n in names}
-    assert suffixes == {"q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"}
+    assert {n.split(".")[-2] for n in names} == SUFFIXES[target_set]
 
 
-def test_embeddings_head_and_norms_stay_dense(hf_model):
+def test_default_target_set_is_the_mlp_only(hf_model):
+    """The experiment prunes the MLP only: attention, the embeddings and the
+    tied lm_head all stay dense."""
+    assert sparse_utils.DEFAULT_TARGETS == "mlp"
     names = {t["tensor_fqn"] for t in sparse_utils.get_sparse_targets(hf_model)}
+    assert {n.split(".")[-2] for n in names} == {"gate_proj", "up_proj", "down_proj"}
+    assert not any(k in n for n in names
+                   for k in ("q_proj", "k_proj", "v_proj", "o_proj"))
+
+
+@pytest.mark.parametrize("target_set", ["all_linear", "mlp", "up_down", "gate"])
+def test_embeddings_head_and_norms_stay_dense(hf_model, target_set):
+    names = {t["tensor_fqn"] for t in sparse_utils.get_sparse_targets(hf_model, target_set)}
     assert not any("embed" in n or "lm_head" in n or "norm" in n for n in names)
     # both models tie lm_head to the embeddings, so masking it would be wrong anyway
     assert hf_model.config.tie_word_embeddings
 
 
+def test_config_and_sparse_utils_agree_on_target_names():
+    from config import SPARSE_TARGETS
+    assert set(SPARSE_TARGETS) == set(sparse_utils.TARGET_SETS)
+
+
 def test_sparse_param_count_matches_config(hf_model):
-    n = sparse_utils.count_sparse_params(hf_model)
-    assert n == expected_block_params(hf_model.config) * hf_model.config.num_hidden_layers
+    cfg, n_layers = hf_model.config, hf_model.config.num_hidden_layers
     total = sum(p.numel() for p in hf_model.parameters())
-    print(f"{hf_model.config._name_or_path}: {n:,} of {total:,} weights sparsifiable "
-          f"({n / total:.1%})")
-    assert 0.5 < n / total < 0.9
+
+    n_all = sparse_utils.count_sparse_params(hf_model, None, "all_linear")
+    assert n_all == expected_block_params(cfg) * n_layers
+
+    # up_down is exactly the two hidden<->intermediate matrices per block.
+    n_ud = sparse_utils.count_sparse_params(hf_model, None, "up_down")
+    assert n_ud == 2 * cfg.hidden_size * cfg.intermediate_size * n_layers
+
+    n_mlp = sparse_utils.count_sparse_params(hf_model, None, "mlp")
+    assert n_mlp == 3 * cfg.hidden_size * cfg.intermediate_size * n_layers
+    assert n_ud < n_mlp < n_all
+
+    print(f"{cfg._name_or_path}: mlp {n_mlp:,} of {total:,} ({n_mlp / total:.1%}), "
+          f"up_down {n_ud:,} ({n_ud / total:.1%})")
+    assert 0.3 < n_ud / total < 0.5
+    assert 0.55 < n_mlp / total < 0.7
 
 
 def test_flatten_folds_masks_and_drops_parametrization_buffers():

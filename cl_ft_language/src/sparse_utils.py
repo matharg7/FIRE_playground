@@ -31,24 +31,56 @@ from sparsimony.schedulers.base import ConstantScheduler, CosineDecayScheduler
 from sparsimony.utils import get_mask
 
 # The decoder blocks of Llama/Qwen2-style HF models. Embeddings, lm_head (tied
-# to the embeddings in both SmolLM2 and Qwen2.5) and norms stay dense.
+# to the embeddings in both SmolLM2 and Qwen2.5) and norms stay dense: they are
+# never candidates, whichever target set is chosen.
 BLOCK_PREFIX = "model.layers."
+
+# Which Linear weights inside a decoder block get a mask. Both SmolLM2 (Llama)
+# and Qwen2.5 use these names and a SwiGLU MLP, where gate_proj and up_proj
+# both map hidden -> intermediate and down_proj maps back.
+#
+#   all_linear  attention and MLP        72% of Qwen2.5-0.5B, 79% of SmolLM2
+#   mlp         the whole MLP            64% / 59%
+#   up_down     up and down only, so     42% / 40%
+#               gate_proj stays dense too
+#   gate        gate_proj alone          21% / 20%  (the SwiGLU gate: it
+#               decides how much of each up_proj channel passes through)
+TARGET_SETS = {
+    "all_linear": ("q_proj", "k_proj", "v_proj", "o_proj",
+                   "gate_proj", "up_proj", "down_proj"),
+    "mlp": ("gate_proj", "up_proj", "down_proj"),
+    "up_down": ("up_proj", "down_proj"),
+    "gate": ("gate_proj",),
+}
+# The experiment prunes the MLP only: attention, the embeddings and the tied
+# lm_head stay dense. gate_proj is included because it is an up-projection by
+# shape (hidden -> intermediate), the twin of up_proj in the SwiGLU pair.
+DEFAULT_TARGETS = "mlp"
 
 DISTRIBUTIONS = {"erk": ERKDistribution, "uniform": UniformDistribution}
 
 
-def get_sparse_targets(model, prefix=BLOCK_PREFIX):
-    """sparsimony configs for every Linear weight inside the decoder blocks."""
+def get_sparse_targets(model, target_set=DEFAULT_TARGETS, prefix=BLOCK_PREFIX):
+    """sparsimony configs for the Linear weights the target set selects.
+
+    Matching is on the module's own name (the last component of its FQN), so
+    only the named projections inside the decoder blocks are ever returned.
+    """
+    if target_set not in TARGET_SETS:
+        raise ValueError(f"sparse_targets must be one of {tuple(TARGET_SETS)}, got {target_set!r}")
+    suffixes = TARGET_SETS[target_set]
     return [
         {"tensor_fqn": f"{name}.weight"}
         for name, module in model.named_modules()
-        if isinstance(module, nn.Linear) and name.startswith(prefix)
+        if isinstance(module, nn.Linear)
+        and name.startswith(prefix)
+        and name.rsplit(".", 1)[-1] in suffixes
     ]
 
 
-def count_sparse_params(model, targets=None):
+def count_sparse_params(model, targets=None, target_set=DEFAULT_TARGETS):
     """How many weights the given targets cover."""
-    targets = get_sparse_targets(model) if targets is None else targets
+    targets = get_sparse_targets(model, target_set) if targets is None else targets
     fqns = {t["tensor_fqn"] for t in targets}
     return sum(p.numel() for n, p in model.named_parameters() if n in fqns)
 
@@ -59,6 +91,62 @@ def sparsifier_schedule(cfg, total_steps):
     t_end = int(cfg.t_end_ratio * total_steps)
     delta_t = max(1, t_end // cfg.num_mask_updates)
     return {"t_end": t_end, "delta_t": delta_t}
+
+
+def updates_per_task(cfg, per_task_steps, delta_t):
+    """How many topology updates each task actually receives.
+
+    'per_task' restarts the schedule with t_end = t_end_ratio * that task's
+    steps, while delta_t stays global -- so a delta_t derived from the whole
+    run can be larger than a short task's entire update window.
+    'global' runs one horizon across the run, which starves the early tasks in
+    the same way.
+    """
+    out, global_step = [], 0
+    t_end_global = int(cfg.t_end_ratio * sum(per_task_steps))
+    for steps in per_task_steps:
+        if cfg.drop_fraction_schedule == 'per_task':
+            t_end = max(1, int(cfg.t_end_ratio * steps))
+            out.append(len(range(delta_t, t_end + 1, delta_t)))
+        else:
+            n = sum(1 for s in range(global_step + 1, global_step + steps + 1)
+                    if s % delta_t == 0 and s <= t_end_global)
+            out.append(n)
+        global_step += steps
+    return out
+
+
+def check_update_cadence(cfg, per_task_steps, sched, task_names=None):
+    """Fail at startup if any task would get too few topology updates.
+
+    delta_t comes from the *whole run*, but the drop-fraction schedule is
+    per-task, so changing the effective batch (which changes the step count)
+    silently changes how much DST each task sees. That showed up once as a
+    rising dst/pruning_ratio three tasks in; it should be a startup error.
+    """
+    if cfg.sparsifier == 'dense' or cfg.min_updates_per_task <= 0:
+        return
+    delta_t = sched['delta_t']
+    counts = updates_per_task(cfg, per_task_steps, delta_t)
+    names = task_names or [f"task {i}" for i in range(len(counts))]
+    print("[sparsifier] topology updates per task: "
+          + ", ".join(f"{n}={c}" for n, c in zip(names, counts)))
+    starved = [(n, c) for n, c in zip(names, counts) if c < cfg.min_updates_per_task]
+    if not starved:
+        return
+    # What would give the shortest task enough updates?
+    shortest = min(per_task_steps)
+    want_delta_t = max(1, int(cfg.t_end_ratio * shortest) // cfg.min_updates_per_task)
+    suggested = max(1, int(cfg.t_end_ratio * sum(per_task_steps)) // want_delta_t)
+    raise ValueError(
+        f"delta_t={delta_t} is too coarse for these tasks: "
+        + ", ".join(f"{n} gets {c}" for n, c in starved)
+        + f" (need >= {cfg.min_updates_per_task}). delta_t comes from the whole "
+          f"run ({sum(per_task_steps):,} steps), but drop_fraction_schedule="
+          f"{cfg.drop_fraction_schedule!r} gives the shortest task an update "
+          f"window of only {int(cfg.t_end_ratio * shortest)} steps. "
+          f"Use --num_mask_updates={suggested} (delta_t~{want_delta_t}), or lower "
+          f"--min_updates_per_task to accept this.")
 
 
 def restart_drop_fraction_schedule(cfg, sparsifier, task_steps):
@@ -106,11 +194,15 @@ def build_sparsifier(cfg, model, optimizer, total_steps):
         sparsity=cfg.sparsity,
         global_pruning=False,
     )
-    targets = get_sparse_targets(model)
+    target_set = getattr(cfg, "sparse_targets", DEFAULT_TARGETS)
+    targets = get_sparse_targets(model, target_set)
     if not targets:
-        raise ValueError(f"no Linear layers found under {BLOCK_PREFIX!r}; is this an HF decoder?")
+        raise ValueError(
+            f"no Linear layers matched sparse_targets={target_set!r} "
+            f"({TARGET_SETS[target_set]}) under {BLOCK_PREFIX!r}; is this an HF decoder?")
     # Count before prepare: reparametrization renames weight -> parametrizations.weight.original
     n_params = count_sparse_params(model, targets)
+    n_model = sum(p.numel() for p in model.parameters())
     sparsifier.prepare(model, targets)
     # Read by DSTMixin.grow_mask: 'previous' keeps the value a regrown weight
     # already held (its pretrained value if it was never active).
@@ -122,8 +214,16 @@ def build_sparsifier(cfg, model, optimizer, total_steps):
         print(f"[sparsifier] WARNING: grow_init='previous' with weight_decay="
               f"{cfg.weight_decay}: masked weights keep decaying while inactive, "
               f"so regrown values are shrunken. Use weight_decay=0 for exact regrowth.")
+    # cfg.sparsity is the sparsity *within the targeted tensors*, so narrowing
+    # the target set lowers the fraction of the whole model that is pruned.
+    # Print both, or a sweep over sparsity is easy to misread across target sets.
+    coverage = n_params / n_model if n_model else 0.0
     print(f"[sparsifier] {cfg.sparsifier} sparsity={cfg.sparsity} "
-          f"distribution={cfg.sparse_distribution} tensors={len(targets)} params={n_params:,} "
+          f"targets={target_set} ({'/'.join(TARGET_SETS[target_set])}) "
+          f"tensors={len(targets)} params={n_params:,} "
+          f"coverage={coverage:.1%} of {n_model:,} "
+          f"effective_global_sparsity={cfg.sparsity * coverage:.2%}")
+    print(f"[sparsifier] distribution={cfg.sparse_distribution} "
           f"total_steps={total_steps:,} t_end={sched['t_end']:,} delta_t={sched['delta_t']:,} "
           f"drop_fraction_schedule={cfg.drop_fraction_schedule} grow_init={cfg.grow_init}")
     return sparsifier

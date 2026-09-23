@@ -39,18 +39,38 @@ def resolve_dir(explicit, env_var, fallback):
 
 
 def build_run_name(cfg):
+    """A name that distinguishes the runs of a sweep from each other.
+
+    Under a W&B sweep every run is launched from the same command, so the name
+    has to carry whatever the sweep varies; a timestamp alone would leave two
+    runs differing only in sparsity looking identical.
+    """
     if cfg.run_name:
         return cfg.run_name
-    model = cfg.model.split('/')[-1]
-    return f"{model}_{cfg.sparsifier}_lr{cfg.learning_rate:g}_s{cfg.seed}_{time.strftime('%Y%m%d-%H%M%S')}"
+    parts = [cfg.model.split('/')[-1], cfg.sparsifier]
+    if cfg.sparsifier != 'dense':
+        parts += [f"s{cfg.sparsity:g}", cfg.sparse_targets, cfg.sparse_distribution,
+                  cfg.grow_init, cfg.drop_fraction_schedule,
+                  f"pr{cfg.pruning_ratio:g}", f"nmu{cfg.num_mask_updates}"]
+    parts += [f"lr{cfg.learning_rate:g}", f"seed{cfg.seed}",
+              time.strftime('%Y%m%d-%H%M%S')]
+    return "_".join(parts)
 
 
 def get_lr(cfg, step, total_steps):
-    """Linear warmup then cosine decay to learning_rate * min_lr_ratio. Restarts per task."""
+    """Learning rate for this step of a task.
+
+    'cosine'   linear warmup then cosine decay to learning_rate * min_lr_ratio,
+               restarting each task.
+    'constant' warmup then a flat learning_rate, which is what TRACE uses:
+               get_constant_schedule_with_warmup with --num_warmup_steps 0.
+    """
     warmup = max(1, int(cfg.warmup_ratio * total_steps))
     peak, floor = cfg.learning_rate, cfg.learning_rate * cfg.min_lr_ratio
     if step < warmup:
         return peak * (step + 1) / warmup
+    if cfg.lr_schedule == 'constant':
+        return peak
     progress = min(1.0, (step - warmup) / max(1, total_steps - warmup))
     return floor + 0.5 * (1.0 + math.cos(math.pi * progress)) * (peak - floor)
 
@@ -62,13 +82,16 @@ def steps_for_task(cfg, n_batches, t=0):
     return min(steps, cfg.max_steps_per_task) if cfg.max_steps_per_task > 0 else steps
 
 
+def per_task_run_steps(cfg, task_data):
+    """Optimizer steps for each task, in order."""
+    return [steps_for_task(cfg, math.ceil(len(data.cumulative_train(task_data, t))
+                                          / cfg.batch_size), t)
+            for t in range(len(task_data))]
+
+
 def total_run_steps(cfg, task_data):
     """Optimizer steps over the whole run; the mask schedule spans all tasks."""
-    total = 0
-    for t in range(len(task_data)):
-        n_examples = len(data.cumulative_train(task_data, t))
-        total += steps_for_task(cfg, math.ceil(n_examples / cfg.batch_size), t)
-    return total
+    return sum(per_task_run_steps(cfg, task_data))
 
 
 def save_checkpoint(model, tokenizer, path):
@@ -190,6 +213,7 @@ def train_task(cfg, t, model, optimizer, loader, device, ctx, num_tasks, logger,
     total = steps_for_task(cfg, len(loader), t)
     accum = cfg.gradient_accumulation_steps
     history = []
+    skipped = [0]   # steps dropped for non-finite gradients; list so it stays mutable
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()  # perf/max_mem_gb is per task
     model.train()
@@ -217,6 +241,26 @@ def train_task(cfg, t, model, optimizer, loader, device, ctx, num_tasks, logger,
             win_counts += counts
             win_tokens += n_tok
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
+        # Skip the step when the gradient is not finite, as DeepSpeed's engine
+        # does for TRACE. clip_grad_norm_ scales every parameter by
+        # max_norm/total_norm, so a single inf gradient makes that factor NaN
+        # and would otherwise turn all 290 tensors into NaN permanently -- one
+        # bad micro-batch kills the whole run. Skipping discards this step's
+        # gradients and carries on with the weights intact.
+        if not torch.isfinite(grad_norm):
+            skipped[0] += 1
+            optimizer.zero_grad(set_to_none=True)
+            if skipped[0] <= 5 or skipped[0] % 50 == 0:
+                print(f"task {t} step {step + 1}/{total}: non-finite grad norm "
+                      f"({grad_norm}), step skipped ({skipped[0]} so far)", flush=True)
+            # A few skips are normal in bf16; a flood means the run is not
+            # training and should be stopped rather than quietly degraded.
+            if step + 1 >= 50 and skipped[0] > cfg.max_skipped_ratio * (step + 1):
+                raise RuntimeError(
+                    f"{skipped[0]} of {step + 1} steps skipped for non-finite gradients "
+                    f"(> {cfg.max_skipped_ratio:.0%}). Training is not converging; "
+                    f"try --dtype float32 or a smaller --learning_rate.")
+            continue
         optimizer.step()
         optimizer.zero_grad(set_to_none=True)
         # Once per optimizer step, after it (never per micro-step): advances the
@@ -229,6 +273,7 @@ def train_task(cfg, t, model, optimizer, loader, device, ctx, num_tasks, logger,
         if (step + 1) % cfg.log_interval == 0 or step + 1 == total:
             elapsed = time.time() - win_start
             metrics = {'train/loss': step_loss, 'train/lr': lr, 'train/grad_norm': float(grad_norm),
+                       'train/skipped_steps': skipped[0],
                        'train/task': t, 'train/epoch': epoch,
                        'perf/tokens_per_s': win_tokens / max(elapsed, 1e-9),
                        'perf/max_mem_gb': torch.cuda.max_memory_allocated() / 2**30
@@ -275,8 +320,13 @@ def main(cfg):
     model = build_model(cfg, device)
     optimizer = build_optimizer(cfg, model)
     # After the optimizer (it hooks AdamW to mask moments), before compile.
-    total_steps = total_run_steps(cfg, task_data)
+    per_task_steps = per_task_run_steps(cfg, task_data)
+    total_steps = sum(per_task_steps)
     sparsifier = sparse_utils.build_sparsifier(cfg, model, optimizer, total_steps)
+    # Before training, not three tasks in: confirm every task actually gets
+    # topology updates under this delta_t.
+    sparse_utils.check_update_cadence(
+        cfg, per_task_steps, sparse_utils.sparsifier_schedule(cfg, total_steps), tasks)
     itop = sparse_utils.ITOPTracker(sparsifier) if sparsifier is not None else None
     train_model = torch.compile(model) if cfg.compile else model
     print(f"total optimizer steps over {len(tasks)} tasks: {total_steps}")
