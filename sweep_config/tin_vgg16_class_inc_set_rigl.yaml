@@ -27,6 +27,16 @@ parameters:
   # T_max = real_epochs and train_st.py rebuilds the scheduler every chunk.
   use_cosine_lr:
     value: "True"
+  # Evaluation cadence.  A full test pass is the dominant non-training cost, so
+  # run it every 5 logged epochs; train_st.py always evaluates a chunk's last
+  # epoch, so task boundaries are still measured.  Evaluation is forward-only
+  # and can use a far larger batch than training.  Both values are
+  # vision/config_st.py's defaults, which run_vision_st.sh otherwise overrides
+  # with 1 / 64.
+  eval_every:
+    value: 5
+  eval_batch_size:
+    value: 1024
   # Drop fraction: one global cosine decay over t_end = 0.8 * total_steps.
   # Held fixed so this sweep differs from its sample-incremental counterpart
   # only in the benchmark; 'per_task' is a separate question.
@@ -39,7 +49,7 @@ parameters:
   sparsity:
     values: [0.1, 0.3, 0.5, 0.7, 0.9]
   pruning_ratio:
-    values: [0.3, 0.7]
+    values: [0.3]
   num_mask_updates:
     values: [10, 100, 1000]
   seed:

@@ -27,6 +27,16 @@ parameters:
   # T_max = real_epochs and train_st.py rebuilds the scheduler every chunk.
   use_cosine_lr:
     value: "True"
+  # Evaluation cadence.  A full test pass is the dominant non-training cost, so
+  # run it every 5 logged epochs; train_st.py always evaluates a chunk's last
+  # epoch, so task boundaries are still measured.  Evaluation is forward-only
+  # and can use a far larger batch than training.  Both values are
+  # vision/config_st.py's defaults, which run_vision_st.sh otherwise overrides
+  # with 1 / 64.
+  eval_every:
+    value: 5
+  eval_batch_size:
+    value: 1024
   # No sparsifier: build_sparsifier() returns None, so sparsity,
   # pruning_ratio and num_mask_updates are all irrelevant here.
   sparsifier:
