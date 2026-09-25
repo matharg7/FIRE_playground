@@ -16,6 +16,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# Seed for choosing which earlier examples are replayed when replay_ratio < 1.
+# Fixed and independent of the run's seed, so every method replays the same
+# images and runs differ only in the method.
+REPLAY_SEED = 4242
+
 def _resolve_data_dir():
     """Directory holding the cached datasets, shared by every run.
 
@@ -115,11 +120,15 @@ class Task(ABC):
             test_chunk_size: int = 0,
             seed: int = 0,
             warm_start_subset_ratio: int = 10,
+            replay_ratio: float = 1.0,
     ):
         self.mode = mode
         self.n_chunks = n_chunks
         self.level = 0
         self.seed = seed
+        if not 0.0 < replay_ratio <= 1.0:
+            raise ValueError(f"replay_ratio must be in (0, 1], got {replay_ratio}")
+        self.replay_ratio = replay_ratio
 
         self._init_dataset(make_test_loader, access, test_access, chunk_size, test_chunk_size, warm_start_subset_ratio=warm_start_subset_ratio)
 
@@ -241,6 +250,8 @@ class Task(ABC):
         self._test_datasets = []
         if self.mode=="sample":
             if self.n_chunks == 2:  # warm start in Hare & Tortoise setting
+                if self.replay_ratio < 1.0:
+                    raise ValueError("replay_ratio < 1 is not defined for the warm-start benchmark")
                 num_warm_start_data = n_train_data // (100 // warm_start_subset_ratio)
                 print(f"Warm start training for {num_warm_start_data} samples, fine-tuning for {n_train_data} samples")
                 self._train_datasets = [
@@ -250,9 +261,35 @@ class Task(ABC):
                 self._unseen_dataset = Subset(train_dataset, train_indices[num_warm_start_data:])
                 self._test_datasets = [test_dataset, test_dataset]
             else:
+                # replay_ratio < 1: stage i trains on all of chunk i plus a
+                # fraction replay_ratio of every earlier chunk. Each chunk's
+                # replayed subset is drawn once, with REPLAY_SEED, and reused at
+                # every later stage. The subset keeps the chunk's own order, so
+                # replay_ratio == 1 gives exactly the unmodified chunks.
+                eff_chunk = chunk_size if chunk_size else len(train_indices) // self.n_chunks
+                retained = None
+                if self.replay_ratio < 1.0:
+                    if access != 'full':
+                        raise ValueError(
+                            f"replay_ratio < 1 in sample mode needs access='full' (each stage "
+                            f"accumulates earlier chunks); got access={access!r}")
+                    rs = np.random.RandomState(REPLAY_SEED)
+                    retained = {}
+                    for j in range(self.n_chunks):
+                        chunk_j = train_indices[j * eff_chunk:(j + 1) * eff_chunk]
+                        k = int(round(self.replay_ratio * len(chunk_j)))
+                        sel = rs.choice(len(chunk_j), size=k, replace=False)
+                        retained[j] = chunk_j[np.sort(sel)]
+
                 for i in range(self.n_chunks):  # continual full and limited setting in Hare & Tortoise
-                    train_ioi = get_chunk_idx(access, len(train_indices), self.n_chunks, chunk_size, i)
-                    chunk_train_indices = train_indices[train_ioi]
+                    if retained is None:
+                        train_ioi = get_chunk_idx(access, len(train_indices), self.n_chunks, chunk_size, i)
+                        chunk_train_indices = train_indices[train_ioi]
+                    else:
+                        # chunks 0..i-1 at ratio replay_ratio, chunk i in full
+                        parts = [retained[j] for j in range(i)]
+                        parts.append(train_indices[i * eff_chunk:(i + 1) * eff_chunk])
+                        chunk_train_indices = np.concatenate(parts)
 
                     test_ioi = get_chunk_idx(test_access, len(test_indices), self.n_chunks, test_chunk_size, i)
                     chunk_test_indices = test_indices[test_ioi]
@@ -267,10 +304,32 @@ class Task(ABC):
         elif self.mode=="class":  # class-incremental setting in Continual BackProp
             classes = np.random.permutation(range(len(train_dataset.classes)))
             n_class = len(classes) // self.n_chunks
+
+            # replay_ratio < 1: stage i trains on all images of its new classes
+            # plus a fraction replay_ratio of each earlier class. Each class's
+            # replayed subset is drawn once, with REPLAY_SEED, and reused at
+            # every later stage. The test set is not reduced.
+            retained = None
+            if self.replay_ratio < 1.0:
+                rs = np.random.RandomState(REPLAY_SEED)
+                targets = np.asarray(train_dataset.targets)
+                retained = {}
+                for c in sorted(int(x) for x in classes):
+                    idx_c = np.where(targets == c)[0]
+                    k = int(round(self.replay_ratio * len(idx_c)))
+                    retained[c] = np.sort(rs.choice(idx_c, size=k, replace=False))
+
             for i in range(self.n_chunks):
                 start_idx = i * n_class if access == 'limited' else 0
-                chunk_train_indices = np.where(np.isin(train_dataset.targets, classes[start_idx:(i + 1) * n_class]))[0]
-                chunk_test_indices = np.where(np.isin(test_dataset.targets, classes[start_idx:(i + 1) * n_class]))[0]
+                seen = classes[start_idx:(i + 1) * n_class]
+                chunk_test_indices = np.where(np.isin(test_dataset.targets, seen))[0]
+                if retained is None:
+                    chunk_train_indices = np.where(np.isin(train_dataset.targets, seen))[0]
+                else:
+                    new_classes = set(int(x) for x in classes[i * n_class:(i + 1) * n_class])
+                    parts = [np.where(np.isin(train_dataset.targets, sorted(new_classes)))[0]]
+                    parts += [retained[int(c)] for c in seen if int(c) not in new_classes]
+                    chunk_train_indices = np.sort(np.concatenate(parts))
 
                 train_subset = Subset(train_dataset, chunk_train_indices)
 

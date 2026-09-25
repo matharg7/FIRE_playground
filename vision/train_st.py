@@ -64,6 +64,7 @@ def get_task(cfg):
         test_access='same',
         seed=cfg.seed,
         warm_start_subset_ratio=cfg.warm_start_subset_ratio,
+        replay_ratio=cfg.get('replay_ratio', 1.0),
     )
     cfg.n_epochs = s['n_epochs']
     return task

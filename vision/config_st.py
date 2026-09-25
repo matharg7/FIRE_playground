@@ -31,6 +31,10 @@ CONFIG = {
     # ---- Benchmark ----
     'benchmark': 'continual',    # warm_start | continual | class_incremental
     'warm_start_subset_ratio': 10,
+    # Fraction of each earlier chunk (sample-incremental) or earlier class
+    # (class-incremental) that is trained on again at later stages. 1.0 = all
+    # of it. The replayed subset is drawn once and is the same in every run.
+    'replay_ratio': 1.0,
 
     # ---- Misc ----
     'log_every': 1,
