@@ -1,0 +1,75 @@
+# W&B sweep: Qwen2.5-0.5B on the 3-task subset, at TRACE's OWN epochs.
+#
+#   ./scripts/launch_wandb_sweep.sh scripts/sweep_1p5b_rigl.yaml --submit
+#
+# SET on gate_proj at s0.3 -- the same arm as RigL but with RANDOM regrowth.
+#
+# Isolates what RigL's gradient criterion is worth: identical sparsity, identical
+# target set, identical schedule, identical grow_init; only the choice of which
+# masked weight to revive differs. Compare against rigl s0.3 [gate] OP 0.6390.
+#
+# Kept in its own file because grow_init=previous is only valid for methods that
+# regrow -- config validation rejects it for gmp/static.
+#
+# seed 0 only.
+
+program: src/train.py
+project: dst_trace_overtrain
+method: grid
+
+metric:
+  name: cl/op
+  goal: maximize
+
+parameters:
+  seed:
+    values: [0]
+
+  sparsifier:              {value: set}
+  sparsity:                {value: 0.3}
+  sparse_targets:          {value: gate}
+  sparse_distribution:     {value: erk}
+  grow_init:               {value: previous}
+  drop_fraction_schedule:  {value: per_task}
+  # Only 939 steps here, so num_mask_updates must come DOWN, not up: 600 would
+  # give delta_t=1, a topology update every single step. 100 gives delta_t=7
+  # (13/26/66 updates per task), the closest match to the 8-task runs' delta_t=9
+  # while keeping a safe margin in the shortest task. check_update_cadence()
+  # enforces this at startup.
+  num_mask_updates:        {value: 100}
+  t_end_ratio:             {value: 0.8}
+  pruning_ratio:           {value: 0.3}
+
+  model:                   {value: Qwen/Qwen2.5-0.5B}
+  subset:                  {value: 5000}
+  tasks:                   {value: "FOMC,ScienceQA,NumGLUE-cm"}
+  # TRACE's own epochs for these three tasks.
+  epochs_per_task:         {value: "3,3,5"}
+  batch_size:              {value: 4}
+  gradient_accumulation_steps: {value: 32}
+  dtype:                   {value: float32}
+  max_prompt_len:          {value: 1024}
+  max_ans_len:             {value: 512}
+  learning_rate:           {value: 0.00001}
+  lr_schedule:             {value: constant}
+  warmup_ratio:            {value: 0.0}
+  weight_decay:            {value: 0.0}
+  length_grouped:          {value: "True"}
+  reset_optimizer:         {value: "True"}
+
+  max_eval_per_task:       {value: 500}
+  eval_batch_size:         {value: 16}
+  eval_zero_shot:          {value: "True"}
+  eval_loss:               {value: "True"}
+  eval_lookahead:          {value: "True"}
+
+  save_checkpoint:         {value: final}
+  wandb_mode:              {value: online}
+  wandb_project:           {value: dst_trace_overtrain}
+
+command:
+  - ${env}
+  - python
+  - -u
+  - ${program}
+  - ${args}

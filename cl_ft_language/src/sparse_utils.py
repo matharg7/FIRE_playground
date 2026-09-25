@@ -25,9 +25,12 @@ distribution (ERK by default, as in the GPT-2 sweep).
 import torch
 import torch.nn as nn
 from sparsimony.distributions.base import ERKDistribution, UniformDistribution
+from sparsimony.dst.gmp import GMP
 from sparsimony.dst.rigl import RigL
 from sparsimony.dst.set import SET
-from sparsimony.schedulers.base import ConstantScheduler, CosineDecayScheduler
+from sparsimony.dst.static import StaticMagnitudeSparsifier
+from sparsimony.schedulers.base import (AcceleratedCubicScheduler, ConstantScheduler,
+                                        CosineDecayScheduler)
 from sparsimony.utils import get_mask
 
 # The decoder blocks of Llama/Qwen2-style HF models. Embeddings, lm_head (tied
@@ -174,10 +177,44 @@ def build_sparsifier(cfg, model, optimizer, total_steps):
     """
     if cfg.sparsifier == "dense":
         return None
-    if cfg.sparsifier not in ("rigl", "set"):
+    if cfg.sparsifier not in ("rigl", "set", "gmp", "static"):
         raise ValueError(f"unknown sparsifier {cfg.sparsifier!r}")
 
     sched = sparsifier_schedule(cfg, total_steps)
+
+    # --- the two arms that do not rewire ------------------------------------
+    # They isolate what RigL/SET's regrowth is worth: `static` fixes the mask
+    # after one magnitude prune, `gmp` ramps sparsity up on a cubic schedule
+    # and prunes only (its grow_mask is a no-op).
+    if cfg.sparsifier == "static":
+        sparsifier = StaticMagnitudeSparsifier(
+            optimizer=optimizer,
+            distribution=DISTRIBUTIONS[cfg.sparse_distribution](),
+            sparsity=cfg.sparsity,
+            global_pruning=False,
+        )
+    elif cfg.sparsifier == "gmp":
+        # Sparsity ramps 0 -> cfg.sparsity. t_accel is where the cubic starts,
+        # as a fraction of t_end; accelerated_sparsity is the level it jumps to
+        # there. Kurtic et al.'s GMP*.
+        sparsifier = GMP(
+            scheduler=AcceleratedCubicScheduler(
+                t_end=sched["t_end"], delta_t=sched["delta_t"],
+                t_accel=int(cfg.gmp_t_accel_ratio * sched["t_end"]),
+                initial_sparsity=0.0,
+                accelerated_sparsity=cfg.gmp_accel_sparsity * cfg.sparsity,
+                final_sparsity=cfg.sparsity),
+            distribution=DISTRIBUTIONS[cfg.sparse_distribution](),
+            optimizer=optimizer,
+            global_pruning=False,
+        )
+    else:
+        sparsifier = _build_dst(cfg, optimizer, sched)
+    return _prepare_sparsifier(cfg, model, sparsifier, sched, total_steps)
+
+
+def _build_dst(cfg, optimizer, sched):
+    """RigL / SET: prune and regrow every delta_t steps."""
     if cfg.drop_fraction_schedule == "constant":
         scheduler = ConstantScheduler(quantity=cfg.pruning_ratio, t_end=sched["t_end"],
                                       delta_t=sched["delta_t"])
@@ -187,13 +224,17 @@ def build_sparsifier(cfg, model, optimizer, total_steps):
         scheduler = CosineDecayScheduler(quantity=cfg.pruning_ratio, t_end=sched["t_end"],
                                          delta_t=sched["delta_t"])
     cls = RigL if cfg.sparsifier == "rigl" else SET
-    sparsifier = cls(
+    return cls(
         scheduler=scheduler,
         distribution=DISTRIBUTIONS[cfg.sparse_distribution](),
         optimizer=optimizer,
         sparsity=cfg.sparsity,
         global_pruning=False,
     )
+
+
+def _prepare_sparsifier(cfg, model, sparsifier, sched, total_steps):
+    """Attach masks to the targeted tensors and report what was covered."""
     target_set = getattr(cfg, "sparse_targets", DEFAULT_TARGETS)
     targets = get_sparse_targets(model, target_set)
     if not targets:

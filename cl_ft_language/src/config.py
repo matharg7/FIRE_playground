@@ -70,7 +70,12 @@ CONFIG = {
     # The pretrained weights are magnitude-pruned to `sparsity` at the start
     # (sparsimony's prepare()); RigL then prunes/regrows every delta_t steps
     # until t_end_ratio of the whole run (one schedule across all tasks).
-    'sparsifier': 'dense',          # dense | rigl | set
+    # dense    no sparsity
+    # rigl     prune + gradient-based regrow every delta_t steps
+    # set      prune + RANDOM regrow (isolates what RigL's gradient criterion buys)
+    # gmp      sparsity ramps 0 -> `sparsity` on a cubic schedule, prune only
+    # static   one magnitude prune, mask then fixed (isolates sparsity itself)
+    'sparsifier': 'dense',          # dense | rigl | set | gmp | static
     'sparsity': 0.1,
     # Which weights get a mask. Embeddings, the tied lm_head, the norms and
     # (by default) attention are never touched. Note that `sparsity` is
@@ -83,6 +88,10 @@ CONFIG = {
     'sparse_targets': 'mlp',        # all_linear | mlp | up_down | gate
     'sparse_distribution': 'erk',   # erk | uniform (per-layer split of the sparsity)
     'num_mask_updates': 600,        # topology updates over the whole run
+    # GMP only: where the cubic ramp starts (fraction of t_end) and the sparsity
+    # it jumps to there (fraction of the final sparsity).
+    'gmp_t_accel_ratio': 0.25,
+    'gmp_accel_sparsity': 0.7,
     # Startup check: delta_t is derived from the whole run, but the
     # drop-fraction schedule is per-task, so a coarse delta_t can leave a short
     # task with almost no topology updates. Fail loudly instead of silently
@@ -141,7 +150,7 @@ CONFIG = {
     'comment': '',
 }
 
-SPARSIFIERS = ('dense', 'rigl', 'set')
+SPARSIFIERS = ('dense', 'rigl', 'set', 'gmp', 'static')
 CL_METHODS = ('none', 'wsc')
 # Mirrors sparse_utils.TARGET_SETS, spelled out here so config.py stays free of
 # torch and sparsimony imports; tests/test_sparse_utils.py checks they agree.
