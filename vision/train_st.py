@@ -14,6 +14,7 @@ from models import get_resnet18_CIFAR10, get_TinyViT_CIFAR100, get_VGG16_TinyIma
 from task import TASKS
 from gpu_data import build_gpu_task_data
 from interventions.fire_sparse import fire_sparse
+from interventions.plasticity_metrics import PlasticityProbe
 from dst_log_utils import ITOPTracker, get_sparsity_stats, get_current_pruning_ratio
 
 # Add the bundled sparsimony repo to sys.path once at import time.
@@ -373,6 +374,23 @@ def main(cfg):
     init_model = copy.deepcopy(model) if cfg.full_reset else None
 
     criterion = nn.CrossEntropyLoss()
+
+    probe = None
+    if cfg.plasticity_metrics:
+        probe = PlasticityProbe(
+            model, task, device,
+            n_images=cfg.plasticity_batch,
+            micro_batch=cfg.plasticity_micro_batch,
+            sharpness=False,      # sharpness is requested per call, at boundaries only
+            sharpness_images=cfg.plasticity_sharpness_batch,
+            sharpness_iters=cfg.plasticity_sharpness_iters,
+            sharpness_samples=cfg.plasticity_sharpness_samples,
+            criterion=criterion)
+        print(f"[plasticity] probe of {probe.n_images} fixed images "
+              f"(index checksum {probe.probe_index_checksum}), every "
+              f"{cfg.plasticity_every} epochs, boundary={cfg.plasticity_boundary}, "
+              f"sharpness={cfg.plasticity_sharpness}")
+
     initial_lr = 0.0
     warmup_rate = 0.1
 
@@ -433,6 +451,11 @@ def main(cfg):
             if hasattr(sparsifier, 'zero_inactive_param_momentum_buffers'):
                 sparsifier.zero_inactive_param_momentum_buffers()
 
+        # The state each stage starts from, before any full reset or FIRE.
+        if probe is not None and cfg.plasticity_boundary:
+            probe.measure(model, stage=i_iter, epoch=-1, tag='stage_start',
+                          sharpness=cfg.plasticity_sharpness)
+
         if cfg.full_reset and i_iter > 0:
             full_reset(model, init_model)
             print(f"[full reset] task {i_iter}: weights set back to their initial values")
@@ -443,6 +466,15 @@ def main(cfg):
             n = fire_sparse(model, iteration=cfg.fire_iter_num,
                             is_vit=(cfg.model == 'TinyViT'))
             print(f"[FIRE] task {i_iter}: {n} weight matrices orthogonalized")
+
+        if probe is not None:
+            # Right after the intervention, so that stage_start and
+            # after_intervention show what the intervention changed.
+            if cfg.plasticity_boundary and i_iter > 0 and (cfg.full_reset or cfg.fire):
+                probe.measure(model, stage=i_iter, epoch=-1, tag='after_intervention',
+                              sharpness=cfg.plasticity_sharpness)
+            # Reference for sfe_prevstage: the weights this stage starts training from.
+            probe.snapshot_stage(model)
 
         for epoch in pbar:
             pbar.set_description(f'Iter {i_iter} | Epoch {epoch}')
@@ -542,6 +574,14 @@ def main(cfg):
                     pruning_ratio = get_current_pruning_ratio(sparsifier)
                     if pruning_ratio is not None:
                         log_dict['dst/pruning_ratio'] = pruning_ratio
+
+                if probe is not None:
+                    if cfg.plasticity_every > 0 and epoch % cfg.plasticity_every == 0:
+                        probe.measure(model, stage=i_iter, epoch=epoch, tag='epoch',
+                                      sharpness=False)
+                    # Includes any boundary measurement made before this epoch.
+                    log_dict.update(probe.pending)
+                    probe.pending.clear()
 
                 wandb.log(log_dict, step=global_step)
                 pbar.set_postfix(**p_fix)

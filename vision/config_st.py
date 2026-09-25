@@ -95,6 +95,29 @@ CONFIG = {
     #   values. Sparse runs keep the mask they have learned.
     'full_reset': False,
 
+    # ---- Plasticity metrics (interventions/plasticity_metrics.py) ----
+    # plasticity_metrics: measure dormant/dead units, feature rank, DfI, SFE,
+    #   weight/gradient norms and effective LR on a fixed batch of training
+    #   images. Measuring does not change training.
+    # plasticity_every: measure every N logged epochs inside a stage.
+    # plasticity_boundary: also measure at the start of every stage and, when
+    #   full_reset or fire is on, again right after the intervention.
+    # plasticity_batch: number of probe images. Use more images than the
+    #   penultimate feature width (192 for TinyViT, 1024 for VGG16), or the
+    #   rank estimates are capped by the batch size.
+    # plasticity_micro_batch: forward chunk size; changes memory use only.
+    # plasticity_sharpness: also estimate the Hessian's largest eigenvalue and
+    #   trace, at stage boundaries only (about 20 extra backward passes each).
+    'plasticity_metrics': False,
+    'plasticity_every': 10,
+    'plasticity_boundary': True,
+    'plasticity_batch': 1024,
+    'plasticity_micro_batch': 128,
+    'plasticity_sharpness': False,
+    'plasticity_sharpness_batch': 256,
+    'plasticity_sharpness_iters': 20,      # power iterations
+    'plasticity_sharpness_samples': 50,    # Hutchinson samples
+
     # ---- LR Scheduler ----
     'use_cosine_lr': False,        # True → CosineAnnealingLR; False → warmup+target_lr
     'cosine_T_max_epochs': 0,      # T_max for CosineAnnealingLR (0 = use real_epochs per chunk)
