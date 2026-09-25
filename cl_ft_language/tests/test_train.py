@@ -155,3 +155,15 @@ def test_timings_record_final_train_loss_for_matched_fit_comparison():
     assert "train_loss_final" in src, "per-task final train loss must be recorded"
     # mean of the last 10% of the step losses, not just the final noisy step
     assert "0.9 * len(history)" in src
+
+
+def test_run_name_distinguishes_the_cl_method():
+    """A dense+WSC run must not be named identically to a plain dense run."""
+    plain = train.build_run_name(cfg_with(sparsifier="dense", cl_method="none"))
+    wsc_n = train.build_run_name(cfg_with(sparsifier="dense", cl_method="wsc",
+                                          wsc_patience=1, wsc_retain_percent=20.0))
+    assert "wsc" in wsc_n and "wsc" not in plain
+    assert "pat1" in wsc_n and "ret20" in wsc_n
+    # and it still separates sparse arms from each other
+    sp = train.build_run_name(cfg_with(sparsifier="rigl", sparsity=0.3, cl_method="wsc"))
+    assert "rigl" in sp and "wsc" in sp

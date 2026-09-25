@@ -53,6 +53,12 @@ def build_run_name(cfg):
         parts += [f"s{cfg.sparsity:g}", cfg.sparse_targets, cfg.sparse_distribution,
                   cfg.grow_init, cfg.drop_fraction_schedule,
                   f"pr{cfg.pruning_ratio:g}", f"nmu{cfg.num_mask_updates}"]
+    # The CL method is orthogonal to the sparsifier, so it has to appear too:
+    # without it a dense+WSC run is named identically to a plain dense run.
+    if cfg.cl_method != 'none':
+        parts.append(cfg.cl_method)
+        if cfg.cl_method == 'wsc':
+            parts += [f"pat{cfg.wsc_patience}", f"ret{cfg.wsc_retain_percent:g}"]
     parts += [f"lr{cfg.learning_rate:g}", f"seed{cfg.seed}",
               time.strftime('%Y%m%d-%H%M%S')]
     return "_".join(parts)
