@@ -87,6 +87,9 @@ CONFIG = {
     #   as in FIRE). Sparse runs keep their mask; see interventions/fire_sparse.py.
     'fire': False,
     'fire_iter_num': 10,         # Newton-Schulz iterations
+    # full_reset: at every task boundary, set all weights back to their initial
+    #   values. Sparse runs keep the mask they have learned.
+    'full_reset': False,
 
     # ---- LR Scheduler ----
     'use_cosine_lr': False,        # True → CosineAnnealingLR; False → warmup+target_lr
