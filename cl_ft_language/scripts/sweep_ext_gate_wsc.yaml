@@ -1,0 +1,85 @@
+# W&B sweep: Qwen2.5-0.5B on the 3-task subset, at TRACE's OWN epochs.
+#
+#   ./scripts/launch_wandb_sweep.sh scripts/sweep_1p5b_dense.yaml --submit
+#
+# EXTENDED (10,10,15) arms for WSC on the 3-task subset.
+#
+# WSC could not be tested at TRACE's 3,3,5 epochs: validation loss fell
+# monotonically in every epoch of every task, so the plateau never triggered.
+# gate s0.3 + WSC performed ZERO trims and zero SWA steps; dense + WSC fired
+# once, on the final epoch of the final task. Those runs are not WSC results.
+#
+# 10,10,15 gives the model room to converge within a task, which is what the
+# method needs. patience=2 (not the 3,3,5 runs' forced 1, not the paper's 4):
+# every task has >= 4 epochs so 2 is legal, it is a genuine plateau rather than
+# "first non-improving epoch", and 4 risks never firing again -- which is how
+# the previous attempt was wasted.
+#
+# DENSE AT THE SAME EPOCHS IS INCLUDED. The existing extended dense is 10,10,20
+# (OP 0.6317), so it is not a baseline for a 10,10,15 arm.
+#
+# 2,931 optimizer steps, ~1.5 h + ~0.15 h for the WSC validation loop.
+#
+# seed 0 only.
+
+program: src/train.py
+project: dst_trace_overtrain
+method: grid
+
+metric:
+  name: cl/op
+  goal: maximize
+
+parameters:
+  seed:
+    values: [0]
+
+  sparsifier:              {value: rigl}
+  sparsity:                {value: 0.3}
+  sparse_targets:          {value: gate}
+  sparse_distribution:     {value: erk}
+  grow_init:               {value: previous}
+  drop_fraction_schedule:  {value: per_task}
+  # 2,931 steps -> nmu 300 gives delta_t=7, matching the 3,3,5 gate arm's
+  # cadence so the only difference between them is the epoch budget.
+  num_mask_updates:        {value: 300}
+  t_end_ratio:             {value: 0.8}
+  pruning_ratio:           {value: 0.3}
+  cl_method:               {value: wsc}
+  wsc_patience:            {value: 2}
+  wsc_retain_percent:      {value: 20.0}
+  wsc_val_examples:        {value: 200}
+
+  model:                   {value: Qwen/Qwen2.5-0.5B}
+  subset:                  {value: 5000}
+  tasks:                   {value: "FOMC,ScienceQA,NumGLUE-cm"}
+  # TRACE's own epochs for these three tasks.
+  epochs_per_task:         {value: "10,10,15"}
+  batch_size:              {value: 4}
+  gradient_accumulation_steps: {value: 32}
+  dtype:                   {value: float32}
+  max_prompt_len:          {value: 1024}
+  max_ans_len:             {value: 512}
+  learning_rate:           {value: 0.00001}
+  lr_schedule:             {value: constant}
+  warmup_ratio:            {value: 0.0}
+  weight_decay:            {value: 0.0}
+  length_grouped:          {value: "True"}
+  reset_optimizer:         {value: "True"}
+
+  max_eval_per_task:       {value: 500}
+  eval_batch_size:         {value: 16}
+  eval_zero_shot:          {value: "True"}
+  eval_loss:               {value: "True"}
+  eval_lookahead:          {value: "True"}
+
+  save_checkpoint:         {value: final}
+  wandb_mode:              {value: online}
+  wandb_project:           {value: dst_trace_overtrain}
+
+command:
+  - ${env}
+  - python
+  - -u
+  - ${program}
+  - ${args}
