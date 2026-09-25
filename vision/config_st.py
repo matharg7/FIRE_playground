@@ -82,6 +82,12 @@ CONFIG = {
     't_accel_ratio': 0.2,        # t_accel = t_accel_ratio * total_steps
     'initial_sparsity': 0.0,     # sparsity at step 0 (dense start)
     
+    # ---- Task-boundary interventions ----
+    # fire: apply FIRE at every task boundary (only to_q / to_k for TinyViT,
+    #   as in FIRE). Sparse runs keep their mask; see interventions/fire_sparse.py.
+    'fire': False,
+    'fire_iter_num': 10,         # Newton-Schulz iterations
+
     # ---- LR Scheduler ----
     'use_cosine_lr': False,        # True → CosineAnnealingLR; False → warmup+target_lr
     'cosine_T_max_epochs': 0,      # T_max for CosineAnnealingLR (0 = use real_epochs per chunk)
