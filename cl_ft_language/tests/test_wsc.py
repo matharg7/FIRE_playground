@@ -179,3 +179,74 @@ def test_swa_average_matches_the_mean_of_the_visited_weights():
     assert torch.allclose(swa_model.module.a.weight, want, atol=1e-6)
     wsc.load_swa_into(m, swa_model)
     assert torch.allclose(m.a.weight, want, atol=1e-6)
+
+
+# --- WSC on top of a sparsified model -----------------------------------
+
+def _sparse_model():
+    import sys, os
+    sys.path.insert(0, os.path.dirname(__file__))
+    from test_grow_init_and_schedule import TinyDecoder
+    import sparse_utils, train
+    torch.manual_seed(0)
+    m = TinyDecoder()
+    c = cfg_with(sparsifier="rigl", sparsity=0.5, sparse_distribution="uniform",
+                 sparse_targets="mlp", num_mask_updates=8, cl_method="wsc",
+                 min_updates_per_task=0)
+    opt = train.build_optimizer(c, m)
+    sp = sparse_utils.build_sparsifier(c, m, opt, total_steps=40)
+    return c, m, opt, sp
+
+
+def test_wsc_operates_on_the_reparametrised_weight_under_rigl():
+    """named_parameters() yields parametrizations.weight.original, so the trim
+    and the moment tracker hit the real dense tensor with no special casing."""
+    _, m, _, _ = _sparse_model()
+    names = [n for n, _ in m.named_parameters() if "gate_proj" in n]
+    assert names and all(n.endswith("parametrizations.weight.original") for n in names)
+    # masks are buffers, not parameters -- the trim must never see them
+    assert not any(n.endswith(".mask") for n, _ in m.named_parameters())
+
+
+def test_loading_swa_does_not_roll_back_the_rigl_masks():
+    """AveragedModel deep-copies the model when SWA starts, so its state_dict
+    carries the masks as they were THEN. RigL keeps rewiring afterwards, so a
+    full load_state_dict would silently restore the stale topology."""
+    import sparse_utils
+    from sparsimony.utils import get_mask
+    _, m, opt, sp = _sparse_model()
+    swa_model, _ = wsc.make_swa(m, opt, swa_lr=1e-5)
+    # the snapshot does contain masks -- this is the trap being guarded against
+    assert any(k.endswith(".mask") for k in swa_model.module.state_dict())
+    # now change the live topology, as a mask update would
+    cfgs = sp.groups
+    live = get_mask(cfgs[0]["module"], cfgs[0]["tensor_name"])
+    flipped = live.clone()
+    idx = (~flipped).nonzero()[0]
+    flipped[tuple(idx.tolist())] = True
+    live.copy_(flipped)
+    before = get_mask(cfgs[0]["module"], cfgs[0]["tensor_name"]).clone()
+    swa_model.update_parameters(m)
+    wsc.load_swa_into(m, swa_model)
+    after = get_mask(cfgs[0]["module"], cfgs[0]["tensor_name"])
+    assert torch.equal(before, after), "SWA load rolled the live mask back"
+
+
+def test_sparsity_is_still_exact_after_trim_and_swa():
+    import sparse_utils
+    c, m, opt, sp = _sparse_model()
+    prev = wsc.snapshot_params(m)
+    with torch.no_grad():
+        for p in m.parameters():
+            p.add_(0.1)
+    tr = wsc.MomentTracker(m)
+    for p in m.parameters():
+        p.grad = torch.randn_like(p)
+    tr.update(m)
+    wsc.pre_swa_trim(m, prev, tr.scores(), retain_percent=20.0)
+    swa_model, _ = wsc.make_swa(m, opt, swa_lr=1e-5)
+    swa_model.update_parameters(m)
+    wsc.load_swa_into(m, swa_model)
+    stats = sparse_utils.get_sparsity_stats(m)
+    assert stats["mask_sparsity"] == pytest.approx(0.5, abs=1e-6)
+    assert stats["weight_sparsity"] >= stats["mask_sparsity"] - 1e-6

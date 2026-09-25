@@ -195,9 +195,29 @@ def make_swa(model, optimizer, swa_lr, anneal_epochs=5):
 
 @torch.no_grad()
 def load_swa_into(model, swa_model):
-    """Copy the averaged weights back into the live model."""
-    src = swa_model.module.state_dict()
-    model.load_state_dict({k: v for k, v in src.items()}, strict=True)
+    """Copy the averaged PARAMETERS back into the live model -- never buffers.
+
+    Under sparsimony the masks are BUFFERS that RigL keeps rewriting, while
+    AveragedModel holds a deepcopy taken when SWA started. Loading its full
+    state_dict would silently roll the sparse topology back to that snapshot
+    (verified: the state_dict carries every `parametrizations.weight.0.mask`).
+    Copying parameters only leaves the live masks intact.
+
+    The averaged weights themselves need no special handling: for a
+    reparametrised layer, named_parameters() yields
+    `parametrizations.weight.original`, which is the real dense tensor.
+    """
+    src = dict(swa_model.module.named_parameters())
+    missing = []
+    for n, p in model.named_parameters():
+        q = src.get(n)
+        if q is None:
+            missing.append(n)
+        else:
+            p.copy_(q)
+    if missing:
+        raise KeyError(f"SWA model is missing {len(missing)} parameters, "
+                       f"first: {missing[0]}")
 
 
 # --------------------------------------------------------------------------
