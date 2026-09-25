@@ -100,15 +100,20 @@ class DSTMixin(ABC):
         old_mask = torch.clone(mask)
         # Grow new weights
         new_mask = self.grower.calculate_mask(sparsity, mask, *args, **kwargs)
-        # Assign newly grown weights to self.grown_weights_init
-        
-        original_weights.data = torch.where(
-            new_mask != old_mask,
-            torch.full_like(
-                original_weights, fill_value=self.grown_weights_init
-            ),
-            original_weights,
-        )
+        # Assign newly grown weights to self.grown_weights_init, unless
+        # grow_init is 'stale': then a regrown weight keeps the value stored
+        # for it, i.e. the value it had when it was last pruned.
+        grow_init = getattr(self, "grow_init", "zero")
+        if grow_init == "zero":
+            original_weights.data = torch.where(
+                new_mask != old_mask,
+                torch.full_like(
+                    original_weights, fill_value=self.grown_weights_init
+                ),
+                original_weights,
+            )
+        elif grow_init != "stale":
+            raise ValueError(f"Unknown grow_init '{grow_init}'")
         
 
         

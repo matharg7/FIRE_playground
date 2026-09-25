@@ -127,6 +127,14 @@ def build_sparsifier(cfg, model, optimizer, chunk_steps):
                      global value so the mask-update cadence is unchanged.
         'constant' – held at cfg.pruning_ratio until t_end (global horizon)
     """
+    grow_init = cfg.get('grow_init', 'zero')
+    if grow_init not in ('zero', 'stale'):
+        raise ValueError(f"Unknown grow_init '{grow_init}'. Choose from: zero, stale")
+    if grow_init != 'zero' and (cfg.sparsifier not in ('rigl', 'set')
+                                or cfg.get('use_cl_dst', False)):
+        raise ValueError(f"grow_init='{grow_init}' only applies to rigl and set, "
+                         "which regrow weights, and not to the CL-DST engine")
+
     if cfg.get('use_cl_dst', False):
         # CL-DST brings its own masking engine (cl-dst/core.py); build_cl_dst
         # validates the config and nothing from sparsimony is used.
@@ -232,11 +240,13 @@ def build_sparsifier(cfg, model, optimizer, chunk_steps):
         {"tensor_fqn": f"{fqn}.weight"} for fqn, _ in prunable if fqn not in skip
     ]
     sparsifier.prepare(model, sparse_config)
+    sparsifier.grow_init = grow_init
 
     print(
         f"[Sparsifier] {cfg.sparsifier} | sparsity={cfg.sparsity} | "
         f"total_steps={total_steps} | t_end={t_end} | delta_t={delta_t} | "
-        f"drop_fraction_schedule={cfg.drop_fraction_schedule}"
+        f"drop_fraction_schedule={cfg.drop_fraction_schedule} | "
+        f"grow_init={grow_init}"
     )
     return sparsifier
 
@@ -275,13 +285,17 @@ def build_run_name(cfg, sparsifier) -> str:
     # delta_t is stored on the scheduler for all non-static methods
     dt = getattr(getattr(sparsifier, 'scheduler', None), 'delta_t', None)
     if cfg.sparsifier in ('rigl', 'set'):
-        return (
+        name = (
             f"{base}_{cfg.sparsifier}"
             f"_sparsity_{cfg.sparsity}"
             f"_pruning_ratio_{cfg.pruning_ratio}"
             f"_delta_t_{dt}"
             f"_df_{cfg.drop_fraction_schedule}"
         )
+        grow_init = cfg.get('grow_init', 'zero')
+        if grow_init != 'zero':
+            name += f"_grow_{grow_init}"
+        return name
     if cfg.sparsifier == 'gmp':
         return (
             f"{base}_gmp"
