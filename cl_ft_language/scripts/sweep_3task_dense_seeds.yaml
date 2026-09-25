@@ -1,0 +1,63 @@
+# SEED REPLICATION at TRACE epochs -- the missing variance measurement.
+#
+# Every result in this project so far is n=1. Two runs with IDENTICAL configs
+# (gate s0.3, and gate s0.3 + WSC whose plateau never fired so it performed no
+# trims and no SWA steps) differed by 0.048 OP -- 0.6390 vs 0.5906, driven by
+# NumGLUE-cm 0.420 vs 0.309. Either there is a bug, or run-to-run variance is
+# ~0.05 OP, which would put nearly every difference reported so far inside the
+# noise: mlp s0.3 +0.0175, gate s0.3 +0.0082, the 8-task gate s0.3 +0.0126.
+#
+# Seeds 1 and 2 here, with seed 0 already done, give n=3 and a standard
+# deviation -- which is also what the collaborator's request asked for and we
+# could not supply.
+#
+# Everything else is identical to the seed-0 runs.
+#
+
+program: src/train.py
+project: dst_trace_overtrain
+method: grid
+
+metric:
+  name: cl/op
+  goal: maximize
+
+parameters:
+  seed:
+    values: [1, 2]
+
+  sparsifier:              {value: dense}
+
+  model:                   {value: Qwen/Qwen2.5-0.5B}
+  subset:                  {value: 5000}
+  tasks:                   {value: "FOMC,ScienceQA,NumGLUE-cm"}
+  # TRACE's own epochs for these three tasks.
+  epochs_per_task:         {value: "3,3,5"}
+  batch_size:              {value: 4}
+  gradient_accumulation_steps: {value: 32}
+  dtype:                   {value: float32}
+  max_prompt_len:          {value: 1024}
+  max_ans_len:             {value: 512}
+  learning_rate:           {value: 0.00001}
+  lr_schedule:             {value: constant}
+  warmup_ratio:            {value: 0.0}
+  weight_decay:            {value: 0.0}
+  length_grouped:          {value: "True"}
+  reset_optimizer:         {value: "True"}
+
+  max_eval_per_task:       {value: 500}
+  eval_batch_size:         {value: 16}
+  eval_zero_shot:          {value: "True"}
+  eval_loss:               {value: "True"}
+  eval_lookahead:          {value: "True"}
+
+  save_checkpoint:         {value: final}
+  wandb_mode:              {value: online}
+  wandb_project:           {value: dst_trace_overtrain}
+
+command:
+  - ${env}
+  - python
+  - -u
+  - ${program}
+  - ${args}
