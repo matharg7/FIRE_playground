@@ -94,10 +94,31 @@ def load_tasks(data_root, tasks=TASKS, **kw):
     return {task: load_task(data_root, task, i, **kw) for i, task in enumerate(tasks)}
 
 
-def cumulative_train(task_data, t):
-    """Full cumulative replay: the train splits of tasks 0..t, concatenated."""
+def cumulative_train(task_data, t, replay_ratio=1.0, seed=0):
+    """Cumulative replay: all of task t, plus `replay_ratio` of each earlier task.
+
+    replay_ratio=1.0 keeps every earlier example (what every run before
+    2026-09-25 used). Lower values keep a seeded random subset of each earlier
+    task while the CURRENT task stays complete -- the standard replay-buffer
+    formulation, where the ratio is how much history you can afford to store.
+
+    Subsampling goes through TaskDataset's own index list, so it composes with
+    --max_train_per_task and keeps each example's task_id.
+    """
     splits = list(task_data.values())[: t + 1]
-    return ConcatDataset([train for train, _, _ in splits])
+    out = []
+    for i, (train, _, _) in enumerate(splits):
+        if i == t or replay_ratio >= 1.0:
+            out.append(train)
+            continue
+        k = max(1, int(round(replay_ratio * len(train))))
+        pick = _subsample(len(train), k, seed + 9000 + i)
+        if pick is None:                      # k >= len(train): keep everything
+            out.append(train)
+            continue
+        out.append(TaskDataset(train.data, train.task_id,
+                               [train.indices[j] for j in pick]))
+    return ConcatDataset(out)
 
 
 class LengthGroupedSampler(torch.utils.data.Sampler):

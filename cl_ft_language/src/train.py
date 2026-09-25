@@ -91,7 +91,8 @@ def steps_for_task(cfg, n_batches, t=0):
 
 def per_task_run_steps(cfg, task_data):
     """Optimizer steps for each task, in order."""
-    return [steps_for_task(cfg, math.ceil(len(data.cumulative_train(task_data, t))
+    return [steps_for_task(cfg, math.ceil(len(data.cumulative_train(
+                                              task_data, t, cfg.replay_ratio, cfg.seed))
                                           / cfg.batch_size), t)
             for t in range(len(task_data))]
 
@@ -417,7 +418,7 @@ def main(cfg):
             # Clear state but keep the optimizer object, so hooks registered on
             # it (sparsimony's momentum masking, Phase 3) survive the boundary.
             optimizer.state.clear()
-        train_set = data.cumulative_train(task_data, t)
+        train_set = data.cumulative_train(task_data, t, cfg.replay_ratio, cfg.seed)
         loader = data.train_loader(train_set, tokenizer, cfg.batch_size, cfg.max_prompt_len,
                                    cfg.max_ans_len, seed=cfg.seed + t, num_workers=cfg.num_workers,
                                    length_grouped=cfg.length_grouped)

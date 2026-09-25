@@ -137,3 +137,42 @@ def test_eval_loader_keeps_order_and_ground_truths(three_tasks, tokenizer):
     assert batch["gts"] == [test[i]["answer"] for i in range(4)]
     assert (batch["task_ids"] == 1).all()
     assert (batch["attention_mask"][:, -1] == 1).all()  # prompts end at the right edge
+
+
+# --- replay ratio -------------------------------------------------------
+
+def test_replay_ratio_subsamples_only_the_earlier_tasks(three_tasks):
+    """The current task stays complete; history is subsampled."""
+    full = data.cumulative_train(three_tasks, 2, replay_ratio=1.0)
+    half = data.cumulative_train(three_tasks, 2, replay_ratio=0.5, seed=0)
+    n = [len(t) for t, _, _ in three_tasks.values()]
+    # task 2 whole + half of tasks 0 and 1
+    assert len(half) == n[2] + round(0.5 * n[0]) + round(0.5 * n[1])
+    assert len(full) == sum(n)
+    # task 0 alone is never subsampled -- it IS the current task at t=0
+    assert len(data.cumulative_train(three_tasks, 0, replay_ratio=0.2)) == n[0]
+
+
+def test_replay_ratio_keeps_every_task_represented(three_tasks):
+    half = data.cumulative_train(three_tasks, 2, replay_ratio=0.2, seed=0)
+    ids = {half[i]["task_id"] for i in range(len(half))}
+    assert ids == {0, 1, 2}, "a replayed task must not vanish entirely"
+
+
+def test_replay_ratio_is_seeded_and_reproducible(three_tasks):
+    a = data.cumulative_train(three_tasks, 2, replay_ratio=0.5, seed=7)
+    b = data.cumulative_train(three_tasks, 2, replay_ratio=0.5, seed=7)
+    c = data.cumulative_train(three_tasks, 2, replay_ratio=0.5, seed=8)
+    pa = [a[i]["prompt"] for i in range(len(a))]
+    pb = [b[i]["prompt"] for i in range(len(b))]
+    pc = [c[i]["prompt"] for i in range(len(c))]
+    assert pa == pb
+    assert pa != pc, "a different seed must draw a different replay subset"
+
+
+def test_replay_ratio_is_validated():
+    import config
+    assert config.get_config([], replay_ratio=0.5).replay_ratio == 0.5
+    for bad in (0.0, -0.1, 1.5):
+        with pytest.raises(ValueError):
+            config.get_config([], replay_ratio=bad)

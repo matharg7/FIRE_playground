@@ -62,6 +62,10 @@ CONFIG = {
                                     # SGD/vision value and would wreck a 1e-5 run)
     'wsc_anneal_epochs': 5,         # SWALR cosine anneal length
     'wsc_val_examples': 200,        # val-split examples per task for the plateau check
+    # Fraction of each EARLIER task's train data replayed alongside the current
+    # task. 1.0 = full cumulative replay (all runs before 2026-09-25). The
+    # current task is always complete; only the history is subsampled.
+    'replay_ratio': 1.0,
     # Batch examples of similar length together: mixing FOMC-length and
     # MeetingBank-length examples left ~68% of every batch as padding.
     'length_grouped': True,
@@ -234,6 +238,8 @@ def validate(cfg):
         raise ValueError(f"dtype must be bfloat16, float16 or float32, got {cfg.dtype!r}")
     if cfg.sparse_distribution not in ('erk', 'uniform'):
         raise ValueError(f"sparse_distribution must be erk or uniform, got {cfg.sparse_distribution!r}")
+    if not 0 < cfg.replay_ratio <= 1:
+        raise ValueError(f"replay_ratio must be in (0, 1], got {cfg.replay_ratio}")
     if cfg.sparse_targets not in SPARSE_TARGETS:
         raise ValueError(f"sparse_targets must be one of {SPARSE_TARGETS}, got {cfg.sparse_targets!r}")
     if cfg.drop_fraction_schedule not in DROP_FRACTION_SCHEDULES:
