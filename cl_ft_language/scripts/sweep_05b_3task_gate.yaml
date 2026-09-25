@@ -1,0 +1,101 @@
+# W&B sweep: Qwen2.5-0.5B on the 3-task subset, at TRACE's OWN epochs.
+#
+#   ./scripts/launch_wandb_sweep.sh scripts/sweep_1p5b_rigl.yaml --submit
+#
+# gate-only sparsity on the 3-task subset, at TRACE's own epochs.
+#
+# Follow-up to the 8-task result where gate s0.3 (6.36% of the model)
+# was the ONLY arm to beat dense: OP 0.5699 vs 0.5572, ahead on 6/8
+# tasks, while the matched-sparsity mlp s0.1 sat at 0.5459. That is
+# 1.35 sd on one seed, so this is a second setting, not a replication.
+#
+# Compares directly against the two runs already done here:
+#   dense       OP 0.6308
+#   rigl s0.3 [mlp]  OP 0.6483
+#
+# (original header follows)
+# THE MISSING ANCHOR:
+#
+#   scale:        0.5B vs 1.5B, both at epochs 3,3,5   (sweep_1p5b_*.yaml)
+#   over-training: 3,3,5 vs 10,10,20, both at 0.5B     (sweep_overtrain_*.yaml)
+#
+# Without it, the 0.5B reference comes from the 8-task sequence, where FOMC sits
+# at position 1 behind C-STANCE rather than at position 0 and the cumulative
+# data differs -- not comparable. This run is ~0.6 h, the cheapest in the
+# project, and it closes both 2x2s.
+#
+# Identical to sweep_1p5b_* except the model: same tasks, same epochs 3,3,5,
+# same effective batch 128, float32, same num_mask_updates=100 (delta_t=7) so
+# the DST cadence matches the 1.5B arm exactly.
+#
+# NOTE on cadence: the over-training arm (10,10,20) has 3,514 steps and runs at
+# delta_t=4, this one at delta_t=7. Both give every task ample topology updates
+# (13/26/66 here, 78/156/468 there), but the cadences are not identical. If
+# that matters, rerun this arm with num_mask_updates=187 for delta_t=4.
+#
+# batch 4 x accum 32 here, not the 1.5B arm's 2 x 64: 0.5B fits comfortably and
+# this matches the completed 8-task runs. The effective batch and the step count
+# (939) are the same either way.
+#
+# seed 0 only.
+
+program: src/train.py
+project: dst_trace_overtrain
+method: grid
+
+metric:
+  name: cl/op
+  goal: maximize
+
+parameters:
+  seed:
+    values: [0]
+
+  sparsifier:              {value: rigl}
+  sparsity:                {value: 0.3}
+  sparse_targets:          {value: gate}
+  sparse_distribution:     {value: erk}
+  grow_init:               {value: previous}
+  drop_fraction_schedule:  {value: per_task}
+  # Only 939 steps here, so num_mask_updates must come DOWN, not up: 600 would
+  # give delta_t=1, a topology update every single step. 100 gives delta_t=7
+  # (13/26/66 updates per task), the closest match to the 8-task runs' delta_t=9
+  # while keeping a safe margin in the shortest task. check_update_cadence()
+  # enforces this at startup.
+  num_mask_updates:        {value: 100}
+  t_end_ratio:             {value: 0.8}
+  pruning_ratio:           {value: 0.3}
+
+  model:                   {value: Qwen/Qwen2.5-0.5B}
+  subset:                  {value: 5000}
+  tasks:                   {value: "FOMC,ScienceQA,NumGLUE-cm"}
+  # TRACE's own epochs for these three tasks.
+  epochs_per_task:         {value: "3,3,5"}
+  batch_size:              {value: 4}
+  gradient_accumulation_steps: {value: 32}
+  dtype:                   {value: float32}
+  max_prompt_len:          {value: 1024}
+  max_ans_len:             {value: 512}
+  learning_rate:           {value: 0.00001}
+  lr_schedule:             {value: constant}
+  warmup_ratio:            {value: 0.0}
+  weight_decay:            {value: 0.0}
+  length_grouped:          {value: "True"}
+  reset_optimizer:         {value: "True"}
+
+  max_eval_per_task:       {value: 500}
+  eval_batch_size:         {value: 16}
+  eval_zero_shot:          {value: "True"}
+  eval_loss:               {value: "True"}
+  eval_lookahead:          {value: "True"}
+
+  save_checkpoint:         {value: final}
+  wandb_mode:              {value: online}
+  wandb_project:           {value: dst_trace_overtrain}
+
+command:
+  - ${env}
+  - python
+  - -u
+  - ${program}
+  - ${args}

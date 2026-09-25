@@ -1,0 +1,92 @@
+# W&B sweep: Qwen2.5-0.5B on the 3-task subset, at TRACE's OWN epochs.
+#
+#   ./scripts/launch_wandb_sweep.sh scripts/sweep_1p5b_dense.yaml --submit
+#
+# WSC (Weight Space Consolidation) baseline on the 3-task subset.
+#
+# Weight Space Consolidation from "Forget Forgetting: Continual Learning in a
+# World of Abundant Memory" (Cho et al., ICLR 2026, arXiv:2502.07274), ported in
+# src/wsc.py from models/wsc.py of umamicode/weight-space-consolidation
+# (commit 026c54e9). The repo's own trace/wsc_llm.py could NOT be used: it is
+# JAX, and the PyTorch entry points its INTEGRATION.md tells you to import
+# (make_swa_torch, make_swa_deepspeed) raise NotImplementedError.
+#
+# WSC = replay (which we already do) + two operations per task boundary:
+#   1. rank-based parameter reset: score weights by |m_hat|*v_hat from the
+#      accumulated Adam moments of their gradients, keep the top 20% of each
+#      tensor, blend the rest 50/50 back toward theta(t-1);
+#   2. SWA once validation loss plateaus, averaged to the end of the task.
+#
+# Compares directly against the runs already done here at these epochs:
+#   dense              OP 0.6308
+#   rigl s0.3 [mlp]    OP 0.6483
+#   rigl s0.3 [gate]   OP 0.6390
+#
+# wsc_patience=1, NOT the paper's 4. Plateau detection needs `patience`
+# CONSECUTIVE non-improving epochs and the first epoch only sets the baseline,
+# so a task needs >= patience+2 epochs for SWA to average more than one point.
+# TRACE gives these tasks 3,3,5 epochs, where patience=4 needs 6 and cannot fire
+# at all -- upstream's 4 sits inside a ~170-epoch vision schedule. At patience=1
+# SWA averages 2, 2 and 4 epochs. check_wsc_schedule() refuses to start a run
+# whose tasks are too short, so this cannot silently become plain fine-tuning.
+#
+# Validation loss for the plateau check uses the cumulative EVAL split of tasks
+# 0..t (496 examples/task, capped at 200), which is held out and distinct from
+# the `test` split used for scoring.
+#
+# cl_method is orthogonal to --sparsifier; this arm is DENSE + WSC, so the trim
+# writes plain weights and never meets sparsimony's reparametrisation.
+#
+# seed 0 only.
+
+program: src/train.py
+project: dst_trace_overtrain
+method: grid
+
+metric:
+  name: cl/op
+  goal: maximize
+
+parameters:
+  seed:
+    values: [0]
+
+  sparsifier:              {value: dense}
+  cl_method:               {value: wsc}
+  wsc_patience:            {value: 1}
+  wsc_retain_percent:      {value: 20.0}
+  wsc_val_examples:        {value: 200}
+
+  model:                   {value: Qwen/Qwen2.5-0.5B}
+  subset:                  {value: 5000}
+  tasks:                   {value: "FOMC,ScienceQA,NumGLUE-cm"}
+  # TRACE's own epochs for these three tasks.
+  epochs_per_task:         {value: "3,3,5"}
+  batch_size:              {value: 4}
+  gradient_accumulation_steps: {value: 32}
+  dtype:                   {value: float32}
+  max_prompt_len:          {value: 1024}
+  max_ans_len:             {value: 512}
+  learning_rate:           {value: 0.00001}
+  lr_schedule:             {value: constant}
+  warmup_ratio:            {value: 0.0}
+  weight_decay:            {value: 0.0}
+  length_grouped:          {value: "True"}
+  reset_optimizer:         {value: "True"}
+
+  max_eval_per_task:       {value: 500}
+  eval_batch_size:         {value: 16}
+  eval_zero_shot:          {value: "True"}
+  eval_loss:               {value: "True"}
+  eval_lookahead:          {value: "True"}
+
+  save_checkpoint:         {value: final}
+  wandb_mode:              {value: online}
+  wandb_project:           {value: dst_trace_overtrain}
+
+command:
+  - ${env}
+  - python
+  - -u
+  - ${program}
+  - ${args}

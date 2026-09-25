@@ -49,6 +49,19 @@ CONFIG = {
     'beta2': 0.95,
     'grad_clip': 1.0,
     'reset_optimizer': True,        # clear AdamW state at every task boundary
+
+    # ---- Continual-learning method (on top of replay) ----
+    # none = plain fine-tuning (what every run so far used)
+    # wsc  = Weight Space Consolidation (arXiv:2502.07274): rank-based parameter
+    #        reset + SWA at each task boundary. See src/wsc.py.
+    'cl_method': 'none',            # none | wsc
+    'wsc_retain_percent': 20.0,     # top-% of each tensor left untouched by the trim
+    'wsc_patience': 4,              # epochs of no val-loss improvement before SWA
+    'wsc_plateau_tol': 1e-4,        # improvement smaller than this counts as none
+    'wsc_swa_lr': 0.0,              # 0 = use learning_rate (upstream's 0.1 is an
+                                    # SGD/vision value and would wreck a 1e-5 run)
+    'wsc_anneal_epochs': 5,         # SWALR cosine anneal length
+    'wsc_val_examples': 200,        # val-split examples per task for the plateau check
     # Batch examples of similar length together: mixing FOMC-length and
     # MeetingBank-length examples left ~68% of every batch as padding.
     'length_grouped': True,
@@ -129,6 +142,7 @@ CONFIG = {
 }
 
 SPARSIFIERS = ('dense', 'rigl', 'set')
+CL_METHODS = ('none', 'wsc')
 # Mirrors sparse_utils.TARGET_SETS, spelled out here so config.py stays free of
 # torch and sparsimony imports; tests/test_sparse_utils.py checks they agree.
 SPARSE_TARGETS = ('all_linear', 'mlp', 'up_down', 'gate')
@@ -196,7 +210,8 @@ def build_parser(defaults=None):
 def validate(cfg):
     for field, allowed in (('sparsifier', SPARSIFIERS), ('wandb_mode', WANDB_MODES),
                            ('save_checkpoint', SAVE_MODES), ('eval_split', ('test', 'eval')),
-                           ('lr_schedule', LR_SCHEDULES)):
+                           ('lr_schedule', LR_SCHEDULES),
+                           ('cl_method', CL_METHODS)):
         if getattr(cfg, field) not in allowed:
             raise ValueError(f"{field} must be one of {allowed}, got {getattr(cfg, field)!r}")
     if cfg.subset not in SUBSETS:

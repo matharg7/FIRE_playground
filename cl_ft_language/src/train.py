@@ -25,6 +25,7 @@ from torch.nn.utils import parametrize
 import data
 import evaluate
 import sparse_utils
+import wsc as wsc_mod
 from cl_metrics import ScoreMatrix
 from config import get_config
 
@@ -208,7 +209,7 @@ class WandbLogger:
 # ---------------------------------------------------------------------------
 
 def train_task(cfg, t, model, optimizer, loader, device, ctx, num_tasks, logger, global_step,
-               sparsifier=None, itop=None):
+               sparsifier=None, itop=None, wsc=None):
     """Train on one task's cumulative loader. Returns (global_step, history)."""
     total = steps_for_task(cfg, len(loader), t)
     accum = cfg.gradient_accumulation_steps
@@ -223,9 +224,13 @@ def train_task(cfg, t, model, optimizer, loader, device, ctx, num_tasks, logger,
     win_counts = torch.zeros(num_tasks, device=device)
     win_tokens, win_start = 0, time.time()
     for step in range(total):
-        lr = get_lr(cfg, step, total)
-        for group in optimizer.param_groups:
-            group['lr'] = lr
+        if wsc is not None and wsc.swa_active:
+            # SWALR owns the LR from here; get_lr would overwrite it every step.
+            lr = optimizer.param_groups[0]['lr']
+        else:
+            lr = get_lr(cfg, step, total)
+            for group in optimizer.param_groups:
+                group['lr'] = lr
         step_loss = 0.0
         for _ in range(accum):
             try:
@@ -234,6 +239,8 @@ def train_task(cfg, t, model, optimizer, loader, device, ctx, num_tasks, logger,
                 epoch += 1
                 it = iter(loader)
                 batch = next(it)
+                if wsc is not None:
+                    wsc.on_epoch_end(model, optimizer, epoch, t)
             loss, sums, counts, n_tok = loss_and_task_stats(model, batch, device, ctx, num_tasks)
             (loss / accum).backward()
             step_loss += loss.item() / accum
@@ -261,6 +268,8 @@ def train_task(cfg, t, model, optimizer, loader, device, ctx, num_tasks, logger,
                     f"(> {cfg.max_skipped_ratio:.0%}). Training is not converging; "
                     f"try --dtype float32 or a smaller --learning_rate.")
             continue
+        if wsc is not None:
+            wsc.on_optimizer_step(model)     # EMA of |g| and g^2, before grads are cleared
         optimizer.step()
         optimizer.zero_grad(set_to_none=True)
         # Once per optimizer step, after it (never per micro-step): advances the
@@ -290,6 +299,10 @@ def train_task(cfg, t, model, optimizer, loader, device, ctx, num_tasks, logger,
             win_sums.zero_()
             win_counts.zero_()
             win_tokens, win_start = 0, time.time()
+    if wsc is not None:
+        # The last epoch never exhausted the iterator, so its end was not
+        # signalled; process it so SWA averages every epoch it should.
+        wsc.finish_epochs(model, optimizer, t, cfg.epochs_list()[t])
     return global_step, history
 
 
@@ -327,6 +340,37 @@ def main(cfg):
     # topology updates under this delta_t.
     sparse_utils.check_update_cadence(
         cfg, per_task_steps, sparse_utils.sparsifier_schedule(cfg, total_steps), tasks)
+
+    # ---- Weight Space Consolidation (optional) ----
+    wsc_ctl = None
+    if cfg.cl_method == 'wsc':
+        wsc_mod.check_wsc_schedule(cfg, cfg.epochs_list(), tasks)
+        # Validation loss for the plateau check: the cumulative EVAL split of the
+        # tasks seen so far, which is a held-out split distinct from the `test`
+        # split used for scoring. Rebuilt at each boundary by _wsc_val_loss.
+        _wsc_state = {'t': 0}
+
+        def _wsc_val_loss():
+            from torch.utils.data import ConcatDataset
+            t_now = _wsc_state['t']
+            splits = [ev for _, ev, _ in list(task_data.values())[:t_now + 1]]
+            ds = ConcatDataset(splits)
+            n = min(len(ds), cfg.wsc_val_examples)
+            idx = list(range(len(ds)))[:n] if n == len(ds) else \
+                  __import__('random').Random(cfg.seed).sample(range(len(ds)), n)
+            vl = data.loss_loader(torch.utils.data.Subset(ds, idx), tokenizer,
+                                  cfg.eval_batch_size, cfg.max_prompt_len,
+                                  cfg.max_ans_len, num_workers=0)
+            tot_loss, tot_tok = 0.0, 0
+            with torch.no_grad():
+                for b in vl:
+                    l, _, _, _ = loss_and_task_stats(train_model, b, device, ctx, len(tasks))
+                    ntok = int((b['labels'][:, 1:] != -100).sum())
+                    tot_loss += float(l) * ntok
+                    tot_tok += ntok
+            return tot_loss / max(tot_tok, 1)
+
+        wsc_ctl = wsc_mod.WSCController(cfg, model, _wsc_val_loss)
     itop = sparse_utils.ITOPTracker(sparsifier) if sparsifier is not None else None
     train_model = torch.compile(model) if cfg.compile else model
     print(f"total optimizer steps over {len(tasks)} tasks: {total_steps}")
@@ -380,9 +424,15 @@ def main(cfg):
             print(f"[sparsifier] task {t}: drop-fraction cosine restarted, t_end={new_t_end}")
         print(f"== task {t} ({task}): {len(train_set)} cumulative examples, "
               f"{task_steps} optimizer steps", flush=True)
+        if wsc_ctl is not None:
+            _wsc_state['t'] = t
+            wsc_ctl.begin_task(model, t)
         start = time.time()
         global_step, history = train_task(cfg, t, train_model, optimizer, loader, device, ctx,
-                                          len(tasks), logger, global_step, sparsifier, itop)
+                                          len(tasks), logger, global_step, sparsifier, itop,
+                                          wsc=wsc_ctl)
+        if wsc_ctl is not None:
+            wsc_ctl.end_task(model, t)
         train_seconds = time.time() - start
         histories.append(history)
         sparse_at_boundary = sparse_utils.sparse_metrics(model, sparsifier, itop)
@@ -428,6 +478,8 @@ def main(cfg):
 
     final = {'op': scores.op(), 'bwt': scores.bwt(), 'global_steps': global_step,
              'total_steps_planned': total_steps, 'timings': timings, **scores.to_dict()}
+    if wsc_ctl is not None:
+        final['wsc_events'] = wsc_ctl.events
     if scores.can_fwt():
         final['fwt'] = scores.fwt()
     write_json(os.path.join(out_dir, 'summary.json'), final)
