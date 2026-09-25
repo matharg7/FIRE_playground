@@ -27,7 +27,7 @@ PACKAGES=(
 )
 # Google Drive file id from trace/README.md ("Trace Benchmark" link).
 TRACE_GDRIVE_ID="1S0SmU0WEw5okW_XvP2Ns0URflNzZq6sV"
-MODELS=(HuggingFaceTB/SmolLM2-135M Qwen/Qwen2.5-0.5B)
+MODELS=(HuggingFaceTB/SmolLM2-135M Qwen/Qwen2.5-0.5B Qwen/Qwen2.5-1.5B)
 FORCE=0
 STEP=""
 

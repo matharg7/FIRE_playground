@@ -228,6 +228,37 @@ fix it. Regression tests in `tests/test_rigl.py` pin both the starved case and
 the shipped default. This class of mismatch is now a startup error rather than
 a curve to notice three tasks in.
 
+## Scaling up: Qwen2.5-1.5B on the 3-task subset (2026-09-25)
+
+**Question.** Does the dense-vs-RigL null at 0.5B survive a 3x larger model?
+At 0.5B, `s0.3` removes 19% of a model that may simply have no redundancy to
+spare, so the null may be a floor effect; larger models are consistently more
+prunable. **Scale is the only variable**: TRACE's own epochs `3,3,5` (not the
+over-trained `10,10,20`), cumulative replay, float32, effective batch 128.
+
+`FOMC -> ScienceQA -> NumGLUE-cm`, dense and rigl s0.3, seed 0. 939 steps.
+
+**Why these settings, and the three traps avoided:**
+
+| | 0.5B (done) | 1.5B (this) | why |
+|---|---|---|---|
+| batch x accum | 4 x 32 | **2 x 64** | identical effective batch and step count (939 either way), but 1.5B at batch 4 peaks near 62 GB on this subset vs ~42 GB at batch 2. Batch 4 fits 80 GB; batch 2 also fits 40 GB. |
+| `num_mask_updates` | 600 | **100** | must come DOWN, not up. At 939 steps, 600 gives `delta_t=1` -- a topology update every step. 100 gives `delta_t=7` (13/26/66 per task), closest to the 8-task runs' `delta_t=9`. |
+| dtype | float32 | **float32** | bf16 overflowed at 0.5B in the backward through a tied embedding that was 27.6% of the model. At 1.5B it is 15.1%, so bf16 is probably usable again and would halve activation memory -- but changing dtype and scale together would confound. Test separately. |
+
+**Embedding share of parameters** (why bf16 gets safer with scale):
+0.5B 27.6% | 1.5B 15.1% | 3B 10.1% | 7B 7.2% (untied).
+
+**Cost.** 1.88 h per run on one H100 (1.31 train + 0.57 eval), from the 0.5B
+calibration `s/step = 1.165 + 0.00284*mean_padded_width` scaled by 3.1x the
+parameters. ~3.2 h on an A100. `build_env.sh` now downloads Qwen2.5-1.5B.
+
+**Why not the full 8 tasks at 1.5B:** ~20.3 h/run, which exceeds every
+partition used so far (nibi's 24 h `b3` would fit with no margin, at a long
+queue). 3B would be ~40.7 h. If the gap opens at 1.5B on the subset, the full
+8-task setting becomes worth 2 x 20 h; T4.3 resume support is the real
+prerequisite for anything above 1.5B.
+
 ## Over-training on a 3-task subset (branch `dst_cl_subset_overtrain`, 2026-09-25)
 
 **Pre-registered before any run.**

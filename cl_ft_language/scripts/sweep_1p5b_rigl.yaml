@@ -1,0 +1,90 @@
+# W&B sweep: Qwen2.5-1.5B on the 3-task subset, at TRACE's OWN epochs.
+#
+#   ./scripts/launch_wandb_sweep.sh scripts/sweep_1p5b_rigl.yaml --submit
+#
+# Question: does the dense-vs-RigL null at 0.5B survive a 3x larger model? At
+# 0.5B, s0.3 removes 19% of a model that may have no redundancy to spare, so
+# the null could be a floor effect -- larger models are consistently more
+# prunable. SCALE is the only variable here: epochs are TRACE's own 3,3,5 (not
+# the over-trained 10,10,20 of sweep_overtrain_*.yaml), replay is cumulative,
+# dtype stays float32, and the effective batch is still 128.
+#
+# Tasks FOMC -> ScienceQA -> NumGLUE-cm, as in sweep_overtrain_*: all three
+# have a zero-shot baseline of exactly 0.000 (clean FWT) and are short-prompt.
+#
+# 939 optimizer steps. Cost on one H100, from the 0.5B calibration
+# s/step = 1.165 + 0.00284*mean_padded_width scaled by 3.1x the parameters:
+# 1.31 h train + 0.57 h eval = 1.88 h. About 3.2 h on an A100.
+#
+# batch 2 x accum 64, NOT 4 x 32: the effective batch and the step count are
+# identical (939 either way), but 1.5B at batch 4 peaks near 62 GB on this
+# subset against ~42 GB at batch 2. Batch 4 fits an 80 GB card if you want the
+# ~2x fewer micro-batch launches; batch 2 also fits 40 GB.
+#
+# float32 is kept deliberately. bf16 overflowed at 0.5B in the backward through
+# a tied embedding that was 27.6% of the model; at 1.5B it is 15.1%, so bf16 is
+# probably usable again and would halve activation memory -- but changing dtype
+# and scale together would confound the comparison. Test bf16 separately.
+#
+# seed 0 only.
+
+program: src/train.py
+project: dst_trace_overtrain
+method: grid
+
+metric:
+  name: cl/op
+  goal: maximize
+
+parameters:
+  seed:
+    values: [0]
+
+  sparsifier:              {value: rigl}
+  sparsity:                {value: 0.3}
+  sparse_targets:          {value: mlp}
+  sparse_distribution:     {value: erk}
+  grow_init:               {value: previous}
+  drop_fraction_schedule:  {value: per_task}
+  # Only 939 steps here, so num_mask_updates must come DOWN, not up: 600 would
+  # give delta_t=1, a topology update every single step. 100 gives delta_t=7
+  # (13/26/66 updates per task), the closest match to the 8-task runs' delta_t=9
+  # while keeping a safe margin in the shortest task. check_update_cadence()
+  # enforces this at startup.
+  num_mask_updates:        {value: 100}
+  t_end_ratio:             {value: 0.8}
+  pruning_ratio:           {value: 0.3}
+
+  model:                   {value: Qwen/Qwen2.5-1.5B}
+  subset:                  {value: 5000}
+  tasks:                   {value: "FOMC,ScienceQA,NumGLUE-cm"}
+  # TRACE's own epochs for these three tasks.
+  epochs_per_task:         {value: "3,3,5"}
+  batch_size:              {value: 2}
+  gradient_accumulation_steps: {value: 64}
+  dtype:                   {value: float32}
+  max_prompt_len:          {value: 1024}
+  max_ans_len:             {value: 512}
+  learning_rate:           {value: 0.00001}
+  lr_schedule:             {value: constant}
+  warmup_ratio:            {value: 0.0}
+  weight_decay:            {value: 0.0}
+  length_grouped:          {value: "True"}
+  reset_optimizer:         {value: "True"}
+
+  max_eval_per_task:       {value: 500}
+  eval_batch_size:         {value: 8}
+  eval_zero_shot:          {value: "True"}
+  eval_loss:               {value: "True"}
+  eval_lookahead:          {value: "True"}
+
+  save_checkpoint:         {value: final}
+  wandb_mode:              {value: online}
+  wandb_project:           {value: dst_trace_overtrain}
+
+command:
+  - ${env}
+  - python
+  - -u
+  - ${program}
+  - ${args}
