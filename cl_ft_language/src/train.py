@@ -407,8 +407,17 @@ def main(cfg):
         metrics.update({f'cl/{k}': v for k, v in summary.items()})
         metrics.update({'time/train_s': train_seconds, 'time/eval_s': eval_seconds})
         logger.log(metrics, global_step)
+        # Final training loss on this task's cumulative data, as the mean over
+        # the last 10% of its steps. The over-training comparison is read at
+        # MATCHED training loss -- a sparse arm that merely fits less has not
+        # generalised better -- so this belongs in the output rather than only
+        # in the log lines.
+        tail = history[max(1, int(0.9 * len(history))):] or history
         timings.append({'task': task, 'train_s': train_seconds, 'eval_s': eval_seconds,
-                        'examples': len(train_set), 'steps': len(history), **sparse_at_boundary})
+                        'examples': len(train_set), 'steps': len(history),
+                        'train_loss_final': sum(tail) / len(tail),
+                        'train_loss_first': history[0] if history else None,
+                        **sparse_at_boundary})
         print(f"== after task {t}: " + " ".join(f"{n}={r['score']:.3f}" for n, r in results.items())
               + " | " + " ".join(f"{k.upper()} {v:.4f}" for k, v in summary.items())
               + f" "

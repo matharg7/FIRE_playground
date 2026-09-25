@@ -76,6 +76,11 @@ else
     [[ -f "$YAML" ]] || { echo "ERROR: no such yaml: $YAML" >&2; exit 1; }
     mapfile -t INFO < <(grid_size "$YAML")
     N_RUNS="${INFO[0]}"
+    # The yaml's `project:` governs; `wandb sweep` would otherwise put every
+    # sweep in whatever is hardcoded here, and the run's own --wandb_project is
+    # ignored inside a sweep ("Ignoring project ... when running a sweep").
+    PROJECT_DEFAULT=dst_trace_benchmark
+    PROJECT="$(sed -n 's/^project:[[:space:]]*//p' "$YAML" | head -1)"
     echo "sweep yaml : $YAML"
     echo "grid       : $N_RUNS run(s)"
     for line in "${INFO[@]:1}"; do [[ -n "$line" ]] && echo "  swept: $line"; done
@@ -83,7 +88,8 @@ fi
 
 [[ "$AGENTS" == "0" ]] && AGENTS="$N_RUNS"
 
-echo "project    : dst_trace_benchmark"
+PROJECT="${PROJECT:-${PROJECT_DEFAULT:-dst_trace_benchmark}}"
+echo "project    : $PROJECT"
 echo "agents     : $AGENTS  (one run each, --count 1)"
 echo "resources  : --time=$TIME --gpus-per-task=$GPUS_PER_TASK --cpus-per-task=$CPUS_PER_TASK --mem-per-cpu=$MEM_PER_CPU"
 echo "account    : ${TRACE_ACCOUNT:-<none>}"
@@ -107,7 +113,7 @@ if [[ -z "$RESUME" ]]; then
     echo
     echo "creating sweep..."
     # `wandb sweep` prints the id on stderr; capture both and pull it out.
-    SWEEP_OUT="$(wandb sweep --project dst_trace_benchmark "$YAML" 2>&1 | tee /dev/stderr)"
+    SWEEP_OUT="$(wandb sweep --project "$PROJECT" "$YAML" 2>&1 | tee /dev/stderr)"
     SWEEP_ID="$(grep -oE 'wandb agent [^ ]+' <<<"$SWEEP_OUT" | tail -1 | awk '{print $3}')"
     [[ -n "$SWEEP_ID" ]] || { echo "ERROR: could not parse a sweep id from wandb output" >&2; exit 1; }
     echo "sweep id: $SWEEP_ID"
@@ -131,5 +137,5 @@ sbatch "${ACCOUNT_ARG[@]}" \
     "$TRACE_ROOT/scripts/wandb_agent.sh"
 
 echo
-echo "sweep : https://wandb.ai/<entity>/dst_trace_benchmark/sweeps/${SWEEP_ID##*/}"
+echo "sweep : https://wandb.ai/ucalgary/$PROJECT/sweeps/${SWEEP_ID##*/}"
 echo "resume: ./scripts/launch_wandb_sweep.sh --resume $SWEEP_ID --agents N --submit"

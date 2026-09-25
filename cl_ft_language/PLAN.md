@@ -228,6 +228,68 @@ fix it. Regression tests in `tests/test_rigl.py` pin both the starved case and
 the shipped default. This class of mismatch is now a startup error rather than
 a curve to notice three tasks in.
 
+## Over-training on a 3-task subset (branch `dst_cl_subset_overtrain`, 2026-09-25)
+
+**Pre-registered before any run.**
+
+**Hypothesis.** Under heavy over-training with cumulative replay, RigL s0.3
+generalises better than dense fine-tuning **at matched training loss**, because
+reduced capacity limits memorisation.
+
+**Why this and not the full benchmark.** The 8-task sweep found dense and
+rigl s0.3 indistinguishable at matched settings, but dOP (sparse - dense) rose
+monotonically as the model was pushed harder:
+
+| lr | dOP | dense OP | s0.3 OP | dense train loss | s0.3 train loss |
+|---|---|---|---|---|---|
+| 1e-5 | -0.0013 | 0.5572 | 0.5559 | 0.0256 | 0.0612 |
+| 3e-5 | -0.0002 | 0.5264 | 0.5262 | 0.0094 | 0.0176 |
+| 1e-4 | **+0.0050** | 0.4281 | 0.4331 | 0.0250 | 0.0261 |
+
+At 1e-4 both arms reach the **same** training loss and sparse still generalises
+slightly better, which rules out the crude confound ("sparse merely fits
+less"). +0.0050 is an eighth of the +-0.04 noise band on one seed, so this is a
+hypothesis, not a result.
+
+**Design.** `FOMC -> ScienceQA -> NumGLUE-cm`, cumulative replay kept (it is
+the setting being targeted, not a variable), epochs `10,10,20` against TRACE's
+own `3,3,5` for these tasks. 3,514 optimizer steps. Arms: dense and rigl s0.3.
+Seed 0 only; seeds are a separate later experiment.
+
+**Task choice is on measurement quality and cost, decided before looking at
+any outcome:** all three have a zero-shot baseline of exactly 0.000, so FWT is
+clean (C-STANCE ranges 0.000-0.170 across arms, MeetingBank 16x, 20Minuten
+starts at 0.363); all are short-prompt; they span classification, reasoning and
+arithmetic. Deliberately **not** the three tasks where sparse happened to win
+at 1e-4 -- selecting those would not replicate. An exhaustive search over
+arm x subset earlier found a best cherry-pick of +0.0248 on 3 tasks where the
+honest 8-task number was -0.0039; that is what ~1,500 combinations of noise
+produce.
+
+**Read-out.** dOP at matched `train_loss_final` (now recorded per task in
+`summary.json`), not absolute OP. **OP is expected to FALL for both arms** --
+over-training took dense from 0.557 to 0.428 at lr=1e-4. A lower OP is the
+manipulation working, not a regression.
+
+**Decision rule.** If dOP at matched training loss is within +-0.01, record a
+null and stop pursuing over-training. If sparse leads by more, the next step is
+seeds (3) and an over-training dose-response (`5,5,10` / `10,10,20` /
+`20,20,40`), since only monotone trends have survived in this project.
+
+**Deliberately NOT controlled: weight decay.** `weight_decay=0` is
+load-bearing, because AdamW's decoupled decay shrinks masked weights (which get
+no gradient), so `grow_init=previous` would regrow a shrunken value -- there is
+a test for this. A "dense + weight decay" arm would therefore give dense a
+regularizer that sparse structurally cannot take. Matching on training loss
+answers the same question without that asymmetry.
+
+**Cost.** 1.76 h per run on one H100, from the calibration
+`s/step = 1.165 + 0.00284 * mean_padded_width` (reproduces 1.485 s/step at
+width 112.6 and 2.555 at 489.5). Scale ~1.7x on an A100 (3.0 h), ~3.5x on a
+V100 (6.2 h). Peak memory ~20-25 GB, well below the 8-task sweep's 38 GB,
+because MeetingBank (mean padded width 1142) is not in the subset.
+W&B project: `dst_trace_overtrain`, kept separate from `dst_trace_benchmark`.
+
 ## Migration of the `dst-fire-full-reset` branch (2026-09-22)
 
 Verified against that branch's code, then migrated. See README §5 for how to use it.

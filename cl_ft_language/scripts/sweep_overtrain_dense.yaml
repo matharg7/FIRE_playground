@@ -1,0 +1,78 @@
+# W&B sweep: 3-task subset, OVER-TRAINED, cumulative replay kept.
+#
+#   ./scripts/launch_wandb_sweep.sh scripts/sweep_overtrain_dense.yaml --submit
+#
+# Question: under heavy over-training with replay, does RigL generalise better
+# than dense fine-tuning AT MATCHED TRAINING LOSS? The full 8-task sweep found
+# the two indistinguishable at matched settings (dOP -0.0013 / -0.0002 /
+# +0.0050 at lr 1e-5 / 3e-5 / 1e-4), but dOP rose monotonically as the model
+# was pushed harder -- hence this.
+#
+# Read the result as the gap at matched TRAINING loss, not as absolute OP: OP
+# is expected to FALL for both arms (over-training took dense 0.557 -> 0.428 at
+# lr=1e-4). A lower OP here is the manipulation working, not a regression.
+#
+# Tasks: FOMC -> ScienceQA -> NumGLUE-cm. Chosen on measurement quality and
+# cost before looking at any outcome: all three have a zero-shot baseline of
+# exactly 0.000 (so FWT is clean, unlike C-STANCE at 0.000-0.170 or 20Minuten
+# at 0.363), all are short-prompt, and they span classification, reasoning and
+# arithmetic. Deliberately NOT the three where sparse happened to win at 1e-4.
+#
+# Epochs 10,10,20 = 3.3-4x TRACE's own 3,3,5 for these tasks. 3,514 optimizer
+# steps. Measured cost on one H100 (fp32, from the fit
+# s/step = 1.165 + 0.00284*mean_padded_width): 1.58 h train + 0.18 h eval
+# = 1.76 h. Scale by ~1.7x on an A100 (3.0 h) and ~3.5x on a V100 (6.2 h).
+# Peak memory is far below the 8-task sweep's 38 GB, because MeetingBank
+# (mean padded width 1142) is not in the subset -- expect roughly 20-25 GB.
+#
+# seed 0 only; seeds are a separate, later experiment.
+
+program: src/train.py
+project: dst_trace_overtrain
+method: grid
+
+metric:
+  name: cl/op
+  goal: maximize
+
+parameters:
+  seed:
+    values: [0]
+
+  sparsifier:              {value: dense}
+
+  model:                   {value: Qwen/Qwen2.5-0.5B}
+  subset:                  {value: 5000}
+  # THE manipulation: 10,10,20 against TRACE's 3,3,5 for these three tasks.
+  tasks:                   {value: "FOMC,ScienceQA,NumGLUE-cm"}
+  epochs_per_task:         {value: "10,10,20"}
+  # Replay stays cumulative -- task t trains on the union of 0..t. This is the
+  # setting being targeted, so it is not an experimental variable.
+  batch_size:              {value: 4}
+  gradient_accumulation_steps: {value: 32}
+  dtype:                   {value: float32}
+  max_prompt_len:          {value: 1024}
+  max_ans_len:             {value: 512}
+  learning_rate:           {value: 0.00001}
+  lr_schedule:             {value: constant}
+  warmup_ratio:            {value: 0.0}
+  weight_decay:            {value: 0.0}
+  length_grouped:          {value: "True"}
+  reset_optimizer:         {value: "True"}
+
+  max_eval_per_task:       {value: 500}
+  eval_batch_size:         {value: 16}
+  eval_zero_shot:          {value: "True"}
+  eval_loss:               {value: "True"}
+  eval_lookahead:          {value: "True"}
+
+  save_checkpoint:         {value: final}
+  wandb_mode:              {value: online}
+  wandb_project:           {value: dst_trace_overtrain}
+
+command:
+  - ${env}
+  - python
+  - -u
+  - ${program}
+  - ${args}

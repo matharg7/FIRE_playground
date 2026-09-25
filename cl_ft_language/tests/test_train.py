@@ -144,3 +144,14 @@ def test_two_task_smoke_run(tmp_path, trace_data_dir):
     assert (run / "checkpoint_task1" / "config.json").exists()
     assert not (run / "checkpoint_task0").exists()
     assert (run / "DONE").exists() and "run_name=smoke" in (run / "DONE").read_text()
+
+
+def test_timings_record_final_train_loss_for_matched_fit_comparison():
+    """The over-training comparison is read at matched TRAINING loss, so each
+    task's end-of-training loss has to survive into summary.json."""
+    import inspect
+    import train as T
+    src = inspect.getsource(T.main)
+    assert "train_loss_final" in src, "per-task final train loss must be recorded"
+    # mean of the last 10% of the step losses, not just the final noisy step
+    assert "0.9 * len(history)" in src
