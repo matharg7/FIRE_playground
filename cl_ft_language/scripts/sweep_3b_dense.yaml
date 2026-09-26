@@ -24,13 +24,19 @@
 # Both fit 80 GB over the steps sampled, but with length-grouped batching the
 # widest batches come late in an epoch and ScienceQA reaches 648 tokens against
 # the ~295 mean in that test, so neither had dependable headroom.
-# # So gradient checkpointing is on here, and batch stays at 2 (job 22697927):
-#   batch 2 x 64 + checkpointing   56.4 GB   3,798 tok/s
-# That is 12.9 GB below the uncheckpointed peak for a 17% throughput cost, and
-# it beats batch 1 without checkpointing on BOTH axes (56.4 vs 63.3 GB, 3,798
-# vs 3,052 tok/s), so batch 1 is not the cheaper safety margin it looked like.
-# 24 GB of headroom absorbs the widest ScienceQA batch, which the 12-step
-# samples above do not reach.
+# # So gradient checkpointing is on here (job 22697927):
+#   batch 2 x 64  + checkpointing   56.4 GB   3,798 tok/s
+#   batch 4 x 32  + checkpointing   58.2 GB   4,675 tok/s   <- used
+# Checkpointing buys back 11-13 GB, and once it is on, batch 4 costs only
+# 1.8 GB more than batch 2 for 23% more throughput -- it is even marginally
+# faster than batch 2 WITHOUT checkpointing (4,675 vs 4,563 tok/s) at 11 GB
+# less memory. 22 GB of headroom absorbs the widest ScienceQA batch, which the
+# 12-step samples above do not reach. Batch 1 uncheckpointed is dominated on
+# both axes and was dropped.
+#
+# batch 4 x 32 also matches the 0.5B arm (sweep_05b_3task_*.yaml) exactly; the
+# 1.5B arm used 2 x 64. The effective batch is 128 and the step count 939 in
+# all three cases, so the optimizer trajectory is the same.
 #
 # Checkpointing is numerically inert -- it recomputes activations in the
 # backward rather than storing them, and dropout is 0 here -- so the 3B points
@@ -65,8 +71,8 @@ parameters:
   tasks:                   {value: "FOMC,ScienceQA,NumGLUE-cm"}
   # TRACE's own epochs for these three tasks.
   epochs_per_task:         {value: "3,3,5"}
-  batch_size:              {value: 2}
-  gradient_accumulation_steps: {value: 64}
+  batch_size:              {value: 4}
+  gradient_accumulation_steps: {value: 32}
   gradient_checkpointing:  {value: "True"}
   dtype:                   {value: float32}
   max_prompt_len:          {value: 1024}
