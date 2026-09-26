@@ -1,0 +1,96 @@
+# W&B sweep: Qwen2.5-3B, dense, 3-task subset, TRACE's own epochs.
+#
+#   ./scripts/launch_wandb_sweep.sh scripts/scripts/sweep_3b_dense.yaml --submit
+#
+# The top of the SCALE ablation: 0.5B -> 1.5B -> 3B on FOMC -> ScienceQA ->
+# NumGLUE-cm, dense against RigL s0.3 on gate_proj only. Scale is the only
+# variable: epochs 3,3,5, cumulative replay, float32, effective batch 128 and
+# num_mask_updates=100 (delta_t=7) are the same at every size.
+#
+# gate_proj coverage holds roughly constant with scale, so s0.3 removes the
+# same fraction of the model at each point and the ablation reads as scale
+# alone rather than scale confounded with dose:
+#   0.5B  24 x 896 x 4864   = 104M of 494M   = 21.2%  -> 6.4% global
+#   1.5B  28 x 1536 x 8960  = 385M of 1.54B  = 25.0%  -> 7.5% global
+#   3B    36 x 2048 x 11008 = 812M of 3.09B  = 26.3%  -> 7.9% global
+#
+# MEMORY, measured on an H100 (job 22697414), not extrapolated -- my estimate
+# of 53.8 GB was 15 GB low. fp32 AdamW at 3B is 46 GB of state before any
+# activation (11.5 params + 11.5 grads + 23 moments), and the jump from 52.9 to
+# 69.3 GB between step 1 and step 2 is the two moments being allocated on the
+# first optimizer step:
+#   batch 2 x 64   69.3 GB   4,563 tok/s
+#   batch 1 x 128  63.3 GB   3,052 tok/s
+# Both fit 80 GB over the steps sampled, but with length-grouped batching the
+# widest batches come late in an epoch and ScienceQA reaches 648 tokens against
+# the ~295 mean in that test, so neither had dependable headroom.
+# # So gradient checkpointing is on here, and batch stays at 2 (job 22697927):
+#   batch 2 x 64 + checkpointing   56.4 GB   3,798 tok/s
+# That is 12.9 GB below the uncheckpointed peak for a 17% throughput cost, and
+# it beats batch 1 without checkpointing on BOTH axes (56.4 vs 63.3 GB, 3,798
+# vs 3,052 tok/s), so batch 1 is not the cheaper safety margin it looked like.
+# 24 GB of headroom absorbs the widest ScienceQA batch, which the 12-step
+# samples above do not reach.
+#
+# Checkpointing is numerically inert -- it recomputes activations in the
+# backward rather than storing them, and dropout is 0 here -- so the 3B points
+# stay comparable to the 0.5B and 1.5B ones, which did not need it. It is a
+# memory/speed choice, not a training change.
+#
+# float32 is kept deliberately, as at 1.5B: bf16 overflowed at 0.5B and changing
+# dtype and scale together would confound the comparison.
+#
+# eval_batch_size 4, down from 8 at 1.5B. Generation needs no optimizer state
+# and the KV cache at 3B is under 0.5 GB, but the evaluator runs with the
+# training state still resident.
+#
+# seed 0 only.
+
+program: src/train.py
+project: dst_trace_overtrain
+method: grid
+
+metric:
+  name: cl/op
+  goal: maximize
+
+parameters:
+  seed:
+    values: [0]
+
+  sparsifier:              {value: dense}
+
+  model:                   {value: Qwen/Qwen2.5-3B}
+  subset:                  {value: 5000}
+  tasks:                   {value: "FOMC,ScienceQA,NumGLUE-cm"}
+  # TRACE's own epochs for these three tasks.
+  epochs_per_task:         {value: "3,3,5"}
+  batch_size:              {value: 2}
+  gradient_accumulation_steps: {value: 64}
+  gradient_checkpointing:  {value: "True"}
+  dtype:                   {value: float32}
+  max_prompt_len:          {value: 1024}
+  max_ans_len:             {value: 512}
+  learning_rate:           {value: 0.00001}
+  lr_schedule:             {value: constant}
+  warmup_ratio:            {value: 0.0}
+  weight_decay:            {value: 0.0}
+  length_grouped:          {value: "True"}
+  reset_optimizer:         {value: "True"}
+
+  max_eval_per_task:       {value: 500}
+  eval_batch_size:         {value: 4}
+  eval_zero_shot:          {value: "True"}
+  eval_loss:               {value: "True"}
+  eval_lookahead:          {value: "True"}
+
+  save_checkpoint:         {value: final}
+  wandb_mode:              {value: online}
+  wandb_project:           {value: dst_trace_overtrain}
+
+command:
+  - ${env}
+  - python
+  - -u
+  - ${program}
+  - ${args}

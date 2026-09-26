@@ -1,0 +1,76 @@
+# W&B sweep: Qwen2.5-1.5B, RigL s0.3 on gate_proj only, 3-task subset.
+#
+#   ./scripts/launch_wandb_sweep.sh scripts/sweep_1p5b_gate.yaml --submit
+#
+# The 1.5B point of the SCALE ablation. sweep_1p5b_rigl.yaml already ran this
+# model with sparse_targets=mlp; the arm the paper compares is gate-only, so
+# this is the run that pairs with the 3B ones. Identical to sweep_1p5b_rigl
+# in every other respect -- same tasks, epochs 3,3,5, effective batch 128,
+# float32, num_mask_updates=100 (delta_t=7), seed 0 -- so gate vs mlp at 1.5B
+# is also readable from the pair.
+#
+# Coverage: gate_proj is 28 tensors x 1536 x 8960 = 385M of 1.54B = 25.0%,
+# so s0.3 is 7.5% effective global sparsity, the same ratio as at 0.5B and 3B.
+#
+# 939 optimizer steps; ~1.3 h train + ~0.6 h eval on one H100.
+
+program: src/train.py
+project: dst_trace_overtrain
+method: grid
+
+metric:
+  name: cl/op
+  goal: maximize
+
+parameters:
+  seed:
+    values: [0]
+
+  sparsifier:              {value: rigl}
+  sparsity:                {value: 0.3}
+  sparse_targets:          {value: gate}
+  sparse_distribution:     {value: erk}
+  grow_init:               {value: previous}
+  drop_fraction_schedule:  {value: per_task}
+  # Only 939 steps here, so num_mask_updates must come DOWN, not up: 600 would
+  # give delta_t=1, a topology update every single step. 100 gives delta_t=7
+  # (13/26/66 updates per task), the closest match to the 8-task runs' delta_t=9
+  # while keeping a safe margin in the shortest task. check_update_cadence()
+  # enforces this at startup.
+  num_mask_updates:        {value: 100}
+  t_end_ratio:             {value: 0.8}
+  pruning_ratio:           {value: 0.3}
+
+  model:                   {value: Qwen/Qwen2.5-1.5B}
+  subset:                  {value: 5000}
+  tasks:                   {value: "FOMC,ScienceQA,NumGLUE-cm"}
+  # TRACE's own epochs for these three tasks.
+  epochs_per_task:         {value: "3,3,5"}
+  batch_size:              {value: 2}
+  gradient_accumulation_steps: {value: 64}
+  dtype:                   {value: float32}
+  max_prompt_len:          {value: 1024}
+  max_ans_len:             {value: 512}
+  learning_rate:           {value: 0.00001}
+  lr_schedule:             {value: constant}
+  warmup_ratio:            {value: 0.0}
+  weight_decay:            {value: 0.0}
+  length_grouped:          {value: "True"}
+  reset_optimizer:         {value: "True"}
+
+  max_eval_per_task:       {value: 500}
+  eval_batch_size:         {value: 8}
+  eval_zero_shot:          {value: "True"}
+  eval_loss:               {value: "True"}
+  eval_lookahead:          {value: "True"}
+
+  save_checkpoint:         {value: final}
+  wandb_mode:              {value: online}
+  wandb_project:           {value: dst_trace_overtrain}
+
+command:
+  - ${env}
+  - python
+  - -u
+  - ${program}
+  - ${args}
