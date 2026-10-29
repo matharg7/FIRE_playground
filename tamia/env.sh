@@ -113,6 +113,25 @@ export FIRE_WANDB_ROOT="${FIRE_WANDB_ROOT:-$FIRE_REPO_ROOT/wandb_offline}"
 # interactive poke-around does not silently force offline mode on a login node
 # (where online logging would work fine).
 _fire_sweep="${1:-}"
+if [[ -z "$_fire_sweep" && -n "${SLURM_JOB_ID:-}" ]]; then
+    # Sourced with no sweep name inside an allocation. W&B is left online, and
+    # tamIA compute nodes cannot reach api.wandb.ai -- wandb.init() will stall
+    # retrying and then scatter runs into a default directory. Silent until the
+    # allocation is gone, so say it out loud.
+    cat >&2 <<'WARN'
+
+WARNING: no sweep name given, so W&B is left ONLINE -- and this is a compute
+         node, which has no internet. Runs launched from this shell will stall
+         in wandb.init() before falling back.
+
+         Fix one of these ways:
+             source tamia/env.sh <sweep-name>   # full offline block (preferred)
+             export WANDB_MODE=offline          # offline, default directory
+             export WANDB_MODE=disabled         # throw the run away
+
+WARN
+fi
+
 if [[ -n "$_fire_sweep" ]]; then
     # tamIA compute nodes cannot reach api.wandb.ai. Runs are written to disk and
     # uploaded later with tamia/sync_wandb.sh from a login node.
